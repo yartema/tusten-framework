@@ -12,6 +12,7 @@ export default defineConfig({
         index: 'src/index.ts',
         server: 'src/server.ts',
         'client/index': 'src/client/index.ts',
+        'client/dev-overlay': 'src/client/dev-overlay.ts',
         cli: 'src/cli.ts',
     },
     format: ['esm'],

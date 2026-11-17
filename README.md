@@ -12,14 +12,14 @@
 
 **tusten** — мета-фреймворк уровня Nuxt/Next, который собирается из трёх проверенных инструментов: React, Fastify, Vite. Устанавливается как зависимость, сканирует `client/`, строит карту маршрутов, поднимает сервер с SSR/SPA и JSON-RPC 2.0 — без магии, без RSC, без Server Actions.
 
-> ⚠️ **Beta (`@tusten/core@0.2.0-beta.5`).**
+> ⚠️ **Beta (`@tusten/core@0.2.0-beta.6`).**
 >
 > - Установка: `pnpm add @tusten/core@beta`
 > - Импорт: `import { defineConfig } from '@tusten/core'`
 > - Bin: `tusten dev`, `tusten build`, `tusten start`, `tusten inspect`
 > - **API стабилизируется**, breaking changes — только в минорных версиях.
 > - **Не для production** без тестов и ревью.
-> - Что нового в beta.5 — i18n клиентских модулей и доработка слайсов: [`CHANGELOG.md`](CHANGELOG.md).
+> - Что нового в beta.6 — настраиваемое имя cookie для i18n (`i18n.key`) и исправление чтения cookie на SSR: [`packages/tusten/CHANGELOG.md`](packages/tusten/CHANGELOG.md).
 > - Следите за [Releases](https://github.com/yartema/tusten-framework/releases).
 
 ---
@@ -29,19 +29,20 @@
 - **SSR из коробки** — `renderToPipeableStream` + `hydrateRoot`, стриминг, единый React Context между сервером и клиентом.
 - **SPA по требованию** — глобально (`ssr: false`), per-route (`route.ssr: false`) или через `?noSSR=true` для отладки.
 - **Файловый роутинг** — `client/*/router.ts` → `defineRoute([...])`. Динамические сегменты через `slug: ['/regex:[a-z0-9-]+']` или `path: '/blog/:slug'`.
-- **Вложенные layouts** — по `parentId`, рендер цепочкой `root → admin → page`. `<Outlet/>` или `props.children` на выбор.
+- **Вложенные layouts** — `route.layout` (строка/массив), наследование по `parentId`, замена/сброс цепочки; layout всегда опционален. `<Outlet/>` или `props.children` на выбор.
+- **Root controller** — `client.root`: одна оболочка приложения на все страницы и состояния (SSR, loading, error, 404) с route/router/status и своим React-контекстом.
 - **SEO / meta** — `metaConfig` на маршруте: статика (`title`, `meta[]`, `microdata`) + динамика через `readMethod` (JSON-RPC) или `getMetaCallback`. Плюс `usePageMeta` для компонента. JSON-LD из коробки.
 - **i18n клиентских модулей** — `import rk from 'i18n!HomePage'`, словари `client/<Module>/lang/<locale>/<locale>.json`, `template()` с ICU-plural, `setLocale()` через cookie. SSR встраивает переводы в HTML — гидрация без mismatch.
 - **JSON-RPC 2.0 из коробки** — `defineObject` в `server/**/*.meta.ts`, endpoint `/service`, batch, валидация через Standard Schema (valibot / zod / arktype), auth, `ctx.call`, `System.Describe`.
 - **Три реестра middleware** — client-page, server-page, server-api. Не смешиваются, наследуются по `parentId`.
 - **Слайсы** — собственный реактивный store (`Slice` / `AbstractSlice` / `SliceRegistry`). Page-scoped и global, `destroy()` / `isDestroyed()` при навигации, `_initState(result, config)` с сериализацией `config` в SSR-state, мерж `setState` для plain-объектов, атомарная подмена страницы через `adoptPage()`, `useSlice` / `useStrictSlice` / `useSliceRef`.
-- **Навигация вне React** — `getRouter()` доступен обработчикам, сервисам и таймерам; тот же API, что у `useRouter()`.
+- **Навигация** — единый хук `useNavigation()` (`pathname` / `params` / `query` / `route` + `push` / `replace` / `back` / `prefetch` / `reload`); `getRouter()` доступен обработчикам, сервисам и таймерам вне React.
 - **Cross-page кэш в `Service`** — TTL, `invalidate()`, LRU-эвикция (`cacheMaxEntries`, default 500), `<Link prefetch>` заполняет кэш по hover. Не на уровне страниц — на уровне вызовов.
 - **`devalue` для сериализации** — `Map`, `Set`, `Date`, `BigInt`, `undefined`, `NaN`, циклы переживают SSR и восстанавливаются на клиенте.
 - **Client-safe разделение** — три runtime-точки входа: `@tusten/core` (pure TS), `@tusten/core/server` (Node-only), `@tusten/core/client` (React), плюс types-only `@tusten/core/i18n` для `i18n!*`. `@tusten/core` не тянет jiti/fastify/vite.
 - **Error boundaries / Loading / Not Found** — через `client.components`, с дефолтами `RootErrorBoundary` / `RootLoading` / `RootNotFound`.
 - **Prod build** — `tusten build` → `dist/client` + `dist/server`. `tusten start` — Fastify + статика.
-- **425 unit-тестов** (Vitest, 25 файлов) — ядро покрыто на 90%+, CI на GitHub Actions.
+- **549 unit-тестов** (Vitest, 40 файлов, `tests/tusten`) — ядро покрыто на 90%+, CI на GitHub Actions.
 
 ---
 
@@ -64,7 +65,6 @@ import { defineConfig } from '@tusten/core'
 export default defineConfig({
     ssr: true,
     client: {
-        layouts: { main: './layouts/Main.tsx' },
         css: ['styles/main.css'],
     },
 })
@@ -93,7 +93,7 @@ pnpm dev:basic
 ```bash
 pnpm lint                                        # ESLint
 pnpm typecheck                                   # tsc --noEmit
-pnpm test                                        # Vitest (425 тестов, 25 файлов)
+pnpm test                                        # Vitest (549 тестов, 40 файлов)
 pnpm inspect:basic                               # dump маршрутов, RPC-методов и i18n-словарей
 pnpm build:basic                                 # prod-сборка
 pnpm start:basic                                 # prod-сервер
@@ -113,7 +113,7 @@ export default defineRoute([
     {
         id: 'home',
         index: true, // URL: /
-        type: 'main', // layout из client.layouts
+        layout: 'layouts/Main', // путь до layout'а; можно не задавать
         middleware: [{ id: 'auth', handler: 'client/middleware/auth' }],
         metaConfig: {
             title: 'Главная',
@@ -138,7 +138,7 @@ export default defineRoute([
     {
         id: 'blog',
         slug: ['/regex:[a-z0-9-]+'],
-        type: 'main',
+        layout: 'layouts/Main',
         metaConfig: {
             readMethod: 'Blogs.ReadMetaInfo', // вернёт { title, meta[], microdata }
             cache: 60_000,
@@ -299,19 +299,19 @@ export const UserListLoader: FactoryImplementation<UserListState> = {
 
 ```tsx
 // client/HomePage/view.tsx
-import { useSlice, usePathname, Link } from '@tusten/core/client'
+import { useSlice, useNavigation, Link } from '@tusten/core/client'
 import type { UserListSlice } from './Factories/usersList'
 
 export function View() {
     const slice = useSlice<UserListSlice>('UserList')
-    const state = slice?.getState()
-    const path = usePathname()
+    const state = slice?.state
+    const nav = useNavigation()
 
     if (!state) return <div>Loading…</div>
 
     return (
         <div>
-            <h1>HomePage ({path})</h1>
+            <h1>HomePage ({nav.pathname})</h1>
             <p>Users: {state.total}</p>
             <Link href="/about" prefetch>
                 → About (SPA, prefetch on hover)
@@ -320,6 +320,51 @@ export function View() {
     )
 }
 ```
+
+### Обновление данных (SPA)
+
+Все навигационные возможности собраны в одном хуке — `useNavigation()`:
+
+```tsx
+const nav = useNavigation()
+
+nav.pathname // текущий путь
+nav.params // динамические сегменты
+nav.query // query-параметры
+nav.route // конфиг маршрута (TustenClientRoute | null)
+
+await nav.push('/about')
+await nav.replace('/about')
+await nav.reload()
+```
+
+`nav.reload()` перезапускает лоадеры текущего маршрута, **не перезагружая
+браузер**: URL и history не меняются, root controller и layouts остаются
+смонтированными.
+
+```tsx
+await nav.reload() // все лоадеры + свежие данные
+await nav.reload({ global: false }) // только page-лоадеры
+await nav.reload({ remount: true }) // перемонтировать страницу
+```
+
+`useRouter()`, `usePathname()`, `useParams()` и `useQuery()` остались как
+deprecated-обёртки; `getRouter()` — для кода вне React.
+
+Подробное руководство по навигации, `<Link>`, prefetch и `reload` —
+[`docs/Router.md`](docs/Router.md).
+
+| Опция        | По умолчанию | Что делает                                                             |
+| ------------ | ------------ | ---------------------------------------------------------------------- |
+| `global`     | `true`       | Перезапускает глобальные loader'ы (`defineGlobalLoader`)               |
+| `cache`      | `false`      | `false` — сбрасывает клиентский кэш `Service`; `true` — разрешает кэш  |
+| `remount`    | `false`      | `true` — новый `key` у шаблона страницы (локальный state сбрасывается) |
+| `middleware` | `true`       | Прогоняет клиентскую middleware-цепочку                                |
+
+Ошибка `reload` **не** заменяет страницу на `components.error`: пользователь
+остаётся на текущей странице, ошибка уходит в dev-оверлей/лог, а Promise
+реджектится. Если во время reload началась навигация — побеждает последняя
+операция. До инициализации client-entry `reload()` делает полную перезагрузку.
 
 ### JSON-RPC-объект
 
@@ -362,9 +407,13 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
     ssr: true,
     client: {
-        layouts: {
-            main: './layouts/Main.tsx',
-            admin: './layouts/Admin.tsx',
+        root: {
+            component: 'Page/Controller:Root',
+            container: {
+                tag: 'div',
+                id: 'app',
+                attributes: { class: 'theme-default', 'data-qa': 'main-container' },
+            },
         },
         components: {
             error: 'shared/ErrorBoundary:ErrorBoundary',
@@ -378,10 +427,14 @@ export default defineConfig({
         plugins: 'server/plugins',
         rpc: { enabled: true, url: '/service' },
     },
-    i18n: { defaultLocale: 'ru', locales: ['ru', 'en'] },
+    i18n: { key: 'lang', defaultLocale: 'ru', locales: ['ru', 'en'] },
     vite: { plugins: [tailwindcss()] },
 })
 ```
+
+Все пути в `client.*` (`components`, `root.component`, `root.container`, `css`) — относительно `clientDir`, без `./`: `Page/Controller:Root`, `layouts/Main`. Старый вид с `./` поддерживается и нормализуется при загрузке конфига.
+
+`client.layouts` и `client.rootElement` **удалены**: если они есть в конфиге, загрузчик выведет предупреждение и проигнорирует их. Layout задаётся в `defineRoute`, контейнер — в `client.root.container`.
 
 ### i18n
 
@@ -395,7 +448,8 @@ client/HomePage/lang/en/en.json
 ```ts
 // tusten.config.ts
 export default defineConfig({
-    i18n: { defaultLocale: 'ru', locales: ['ru', 'en'] },
+    // key — имя cookie с выбранным языком; по умолчанию `lang`.
+    i18n: { key: 'lang', defaultLocale: 'ru', locales: ['ru', 'en'] },
 })
 ```
 
@@ -409,16 +463,120 @@ template(rk('Привет, {name}!'), { name }) // интерполяция
 template(rk('{n, plural, one {# файл} few {# файла} other {# файлов}}'), { n })
 
 getLocale() // текущая locale (string | undefined)
-setLocale('en') // cookie + перезагрузка страницы
+setLocale('en') // cookie (имя из `i18n.key`, по умолчанию `lang`) + перезагрузка страницы
 ```
 
 - Нет словаря или ключа — возвращается исходный ключ, без ошибок. Битый JSON и нестроковое значение — ошибка сборки.
 - `template()` — подмножество ICU: `{name}`, `plural` (`one` / `few` / `many` / `other`, `other` обязателен), точное `=N`, `#` → число. Экранирование — `\{`, `\}`, `\#`, `\\`.
-- Locale: cookie `tusten_locale` → `Accept-Language` (с учётом `q`, только из `locales`) → `defaultLocale`. На сервере locale хранится в `AsyncLocalStorage`, поэтому параллельные запросы не смешивают языки.
+- Locale: cookie `i18n.key` (по умолчанию `lang`) → `Accept-Language` (с учётом `q`, только из `locales`) → `defaultLocale`. На сервере locale хранится в `AsyncLocalStorage`, поэтому параллельные запросы не смешивают языки.
+- Имя cookie валидируется при загрузке конфига (token по RFC 6265, обрезается по краям): пустая строка и недопустимые символы — `TustenError`. Миграция с beta.5: дефолт сменился с `tusten_locale` на `lang`; чтобы сохранить старое имя — `i18n: { key: 'tusten_locale', ... }`.
+- SSR, SPA и 404 рендерят `<html lang="…">` с locale запроса; при выключенном i18n атрибут не выводится.
 - Словари использованных модулей уходят в HTML вместе с SSR; при SPA-навигации догружаются отдельным чанком вместе с маршрутом.
 - Синтаксис импорта — только `i18n!<Module>`; `i18n:<Module>` — внутренний virtual module. Типы подключаются через `@tusten/core/client` (или `@tusten/core/i18n`, если React не нужен).
 - Тесты: в `vitest.config.ts` подключите `i18nTestPlugin()` из `@tusten/core/server` — `rk(key)` вернёт `key`.
 - `tusten inspect` показывает модули, число ключей по locale и отсутствующие словари.
+
+### Root controller
+
+Компонент-оболочка приложения, которая рендерится **всегда**: SSR, гидрация, SPA-loading, ошибка и 404. Один раз на приложение — не нужно оборачивать каждый маршрут.
+
+```ts
+// tusten.config.ts
+export default defineConfig({
+    client: {
+        root: {
+            component: 'Page/Controller:Root',
+            container: { tag: 'div', id: 'app' },
+        },
+    },
+})
+```
+
+```tsx
+// client/Page/Controller.tsx
+import type { RootControllerProps } from '@tusten/core/client'
+
+export function Root({ children, route, status }: RootControllerProps): JSX.Element {
+    return (
+        <AppProviders route={route}>
+            <Header />
+            {children}
+            <Footer />
+        </AppProviders>
+    )
+}
+```
+
+- Пропсы: `children` (layout chain или Loading/Error/NotFound), `route` (`TustenClientRoute | null`), `router`, `status` (`ready` / `loading` / `error` / `not-found`), `error`.
+- `route` — одна и та же проекция на сервере и клиенте; для потомков есть `useRoute()`.
+- `status` отражает состояние: initial SPA-prefetch (`loading`), ошибка навигации/prefetch (`error`), 404 (`not-found`).
+- Корень не перемонтируется при SPA-навигации: контекст, тема и открытые меню живут. Страница перемонтируется при смене URL.
+- Ошибки страницы рендерит `components.error` **внутри** корня; фатальные — dev-оверлей / prod-500.
+- `route.layout` необязателен: без него маршрут наследует цепочку родителя (`parentId`) или рендерится без layout'ов. `client.layouts` больше нет — layout объявляется в `defineRoute`.
+- `RootErrorBoundary` сбрасывает пойманную ошибку при навигации (`resetKey`).
+
+### Layouts
+
+Layout — это часть маршрута, как `template`. Глобального реестра `client.layouts` нет.
+
+```ts
+// client/HomePage/router.ts
+export default defineRoute([{ id: 'home', index: true, layout: 'layouts/Main' /* ... */ }])
+```
+
+Семантика `route.layout`:
+
+| Значение                            | Результат                                                     |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `undefined`                         | наследуется цепочка родителя (`parentId`); у корневого — `[]` |
+| `'layouts/Main'`                    | только этот layout (заменяет унаследованную цепочку)          |
+| `['layouts/Main', 'layouts/Admin']` | явная вложенность root → leaf                                 |
+| `false` или `[]`                    | без layout'ов (в том числе сброс унаследованного)             |
+
+- Спека — путь относительно `clientDir` в формате `<file>:<export>` или `<file>` для default-export: `Page/Layout:Main`, `layouts/Main`.
+- Общие layout'ы удобно держать в TS-константах (`export const MAIN_LAYOUT = 'layouts/Main'`), а не в конфиге.
+- Дубликаты подряд удаляются: `['layouts/Main', 'layouts/Main']` → `['layouts/Main']`.
+
+### Контейнер приложения
+
+По умолчанию SSR отдаёт `<div id="root" data-tusten-root>`. Тег, id и атрибуты настраиваются в `client.root.container`:
+
+```ts
+// tusten.config.ts
+export default defineConfig({
+    client: {
+        root: {
+            container: {
+                tag: 'app-root', // вместо div; можно любой обычный/custom-тег
+                id: 'app', // по умолчанию 'root'; false — без id
+                attributes: { class: 'app-shell', 'data-theme': 'light' },
+            },
+        },
+    },
+})
+```
+
+- `data-tusten-root` — служебный маркер: по нему клиент находит контейнер, поэтому менять `id` и `tag` безопасно.
+- `attributes` принимает строки, числа и `true` (boolean-атрибут, например `hidden`). `false`/`undefined` пропускаются, `on*` запрещены — это статичный HTML, не обработчики.
+- `id: false` убирает id; клиент всё равно найдёт контейнер по `data-tusten-root`.
+- Совсем без элемента нельзя: React нужен контейнер для `hydrateRoot`/`createRoot`, а boot-скрипты живут в `<body>`. Но `tag: 'app-root'`/`section`/custom element убирает лишний `div`.
+
+### Ошибки в браузере (dev)
+
+В dev ошибка не теряется в консоли:
+
+- **Падение SSR** — отдельная страница с описанием, стеком и code frame. Стек маппится по sourcemap (`vite.ssrFixStacktrace`), поэтому в кадрах исходные `.tsx`, а не результат трансформации; клик по кадру открывает файл в редакторе.
+- **Ошибка после отправки shell** (стриминг) — ошибки собираются в HTML (`window.__TUSTEN_SSR_ERRORS__`) и показываются оверлеем поверх частично отрендеренной страницы.
+- **Клиент** — оверлей с описанием, стеком, кнопкой «Скопировать» и переходом в редактор: гидрация, SPA-навигация, initial prefetch и ошибки, пойманные `RootErrorBoundary` (наличие fallback не скрывает баг).
+- **SPA-навигация больше не «молчит»**: если `loadData` или чанк маршрута упали, рендерится `components.error`, а в dev дополнительно поднимается оверлей.
+
+Оверлей — отдельная точка входа `@tusten/core/client/dev-overlay`: клиентский entry импортирует её только внутри `if (import.meta.env.DEV)`, поэтому в production-бандл её код не попадает.
+
+В production:
+
+- 500-страница без стека и путей, с коротким «Кодом ошибки»;
+- тот же код пишется в лог — `[tusten] SSR error [1a2b3c4d]: …` — по нему находится конкретный запрос;
+- фатальный сбой клиента в SPA (без SSR) показывает «Не удалось загрузить страницу. Обновите её» вместо пустого экрана.
 
 ---
 
@@ -429,7 +587,7 @@ setLocale('en') // cookie + перезагрузка страницы
 │                                                        │
 │  client/*/router.ts ──► defineRoute([...])             │
 │  client/*/Factories ──► getConfig → Service            │
-│  client/*/view.tsx ───► useSlice / useRouter / <Link>  │
+│  client/*/view.tsx ───► useSlice / useNavigation / <Link>  │
 │                         usePageMeta                    │
 │                                                        │
 └─────────────────┬──────────────────────────────────────┘
@@ -460,7 +618,7 @@ setLocale('en') // cookie + перезагрузка страницы
 - **`ctx.stomp.message(key, payload)`** — real-time push (в разработке).
 - **Три реестра middleware** — не смешиваются, каждый со своим контекстом.
 - **`@tusten/core` / `@tusten/core/server` / `@tusten/core/client`** — client-safe разделение, `@tusten/core` не тянет Node.
-- **425 unit-тестов** (Vitest, 25 файлов) — ядро покрыто на 90%+.
+- **497 unit-тестов** (Vitest, 32 файла) — ядро покрыто на 90%+.
 
 ---
 
@@ -468,7 +626,6 @@ setLocale('en') // cookie + перезагрузка страницы
 
 ```
 tusten-framework/
-├── CHANGELOG.md                 # история изменений
 ├── packages/
 │   └── tusten/                  # пакет @tusten/core
 │       ├── src/
@@ -481,6 +638,7 @@ tusten-framework/
 │       │   └── vite/            # Vite-плагин (virtual modules)
 │       ├── types/               # ambient-типы i18n!*
 │       ├── scripts/             # postbuild (d.ts для i18n)
+│       ├── CHANGELOG.md         # история изменений (источник истины)
 │       └── README.md            # генерируется из корневого (prepack)
 │
 ├── examples/
@@ -621,7 +779,7 @@ pnpm publish:latest
 
 ### Что может измениться без предупреждения
 
-- **Публичный API** — сигнатуры `defineRoute`, `defineGlobalLoader`, `defineObject`, `Service`, `Slice`, хуков (`useSlice`, `useRouter`, `usePageMeta`), i18n (`rk`, `template`, `getLocale`, `setLocale`).
+- **Публичный API** — сигнатуры `defineRoute`, `defineGlobalLoader`, `defineObject`, `Service`, `Slice`, хуков (`useSlice`, `useNavigation`, `usePageMeta`), i18n (`rk`, `template`, `getLocale`, `setLocale`).
 - **Формат конфига** (`tusten.config.ts`) — поля могут переименовываться, получать новые опции, менять дефолты; `i18n` тоже входит сюда.
 - **Схема маршрута** (`TustenRoute`) — `path`, `slug`, `ssr`, `middleware`, `metaConfig`, `contentConfig` и т.д.
 - **JSON-RPC** — wire-протокол, формат `System.Describe`, коды ошибок.
@@ -631,9 +789,9 @@ pnpm publish:latest
 
 ### Что стабилизируется раньше
 
-- **`defineConfig`** — базовая структура (`ssr`, `client`, `server`) вряд ли изменится.
+- **`defineConfig`** — базовая структура (`ssr`, `client`, `server`) может изменится.
 - **`defineRoute`** — структура маршрута (id, parentId, type, metaConfig) — фундаментальная.
-- **`Slice` / `AbstractSlice`** — `hydrate(result, config)`, `getState`, `setState`, `subscribe`, `destroy` — ядро реактивности.
+- **`Slice` / `AbstractSlice`** — `hydrate(result, config)`, `state`, `setState`, `subscribe`, `destroy` — ядро реактивности.
 - **`loadData(args, deps, ctx)`** — сигнатура.
 - **`MetaTag`** — `{ name, content, attribute? }`.
 - **i18n-контракт** — `rk(key, ctx?)` → `string`, `template(str, params, locale?)` → `string`, словари `lang/<locale>/<locale>.json`.
@@ -648,13 +806,13 @@ pnpm publish:latest
 ### Как отслеживать
 
 - **GitHub Releases** — каждое изменение, помеченное `BREAKING` или `feat`.
-- **[`CHANGELOG.md`](CHANGELOG.md)** — полная история изменений (Keep a Changelog + SemVer).
+- **[`packages/tusten/CHANGELOG.md`](packages/tusten/CHANGELOG.md)** — полная история изменений (Keep a Changelog + SemVer).
 - **[`README.md`](README.md)** — актуальная документация.
 
 ### Если вы уже используете tusten
 
 - **Читайте Release Notes** перед `pnpm update @tusten/core`.
-- **Фиксируйте точную версию** в проде — `pnpm add @tusten/core@0.2.0-beta.5` (не `@beta`).
+- **Фиксируйте точную версию** в проде — `pnpm add @tusten/core@0.2.0-beta.6` (не `@beta`).
 - **Пишите обёртки** над публичным API — если сигнатура изменится, поправите в одном месте.
 - **Сообщайте о проблемах** — [Issues](https://github.com/yartema/tusten-framework/issues) помогают стабилизировать API раньше.
 

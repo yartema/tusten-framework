@@ -1,7 +1,7 @@
-import { TustenError } from '../../errors'
+import { TustenError } from '../../core/errors'
 import type { RpcRegistry } from '../rpc-registry'
 import type { RpcContext, RpcMethodDefinition } from '../../types'
-import type { JsonRpcErrorPayload } from '../../errors'
+import type { JsonRpcErrorPayload } from '../../core/errors'
 
 /** JSON-RPC ID. */
 export type JsonRpcId = string | number | null

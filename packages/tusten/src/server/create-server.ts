@@ -57,16 +57,7 @@ export interface CreateServerOptions {
  * @returns Fastify-инстанс.
  */
 export async function createServer(options: CreateServerOptions): Promise<FastifyInstance> {
-    const {
-        config,
-        projectDir,
-        routeTree,
-        manifest,
-        globalRegistry,
-        factoryModules,
-        rpcRegistry,
-        mode = 'development',
-    } = options
+    const { config, projectDir, routeTree, globalRegistry, factoryModules, rpcRegistry, mode = 'development' } = options
 
     const fastify = Fastify({
         logger: { level: 'info' },
@@ -87,9 +78,9 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         children?: ReactNode
         fallback?: ComponentType<{ error: Error }>
     }>
-    let RootLoading: ComponentType
     let RootNotFound: ComponentType
     let loadModule: (spec: string) => Promise<unknown>
+    let fixStacktrace: ((error: unknown) => void) | undefined
     let entryScriptSrc: string
     let i18nClient: TustenClientI18nApi
     let clientManifest: Record<string, never> | null = null
@@ -150,7 +141,6 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
             SliceRegistry: typeof SliceRegistry
             renderLayoutChain: typeof renderLayoutChain
             RootErrorBoundary: typeof RootErrorBoundary
-            RootLoading: typeof RootLoading
             RootNotFound: typeof RootNotFound
         } & TustenClientI18nApi
 
@@ -159,9 +149,18 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         SliceRegistry = tustenClient.SliceRegistry
         renderLayoutChain = tustenClient.renderLayoutChain
         RootErrorBoundary = tustenClient.RootErrorBoundary
-        RootLoading = tustenClient.RootLoading
         RootNotFound = tustenClient.RootNotFound
         loadModule = createDevModuleLoader(clientDir, vite)
+        // Vite знает sourcemap'ы трансформированных модулей: без этого стек SSR
+        // указывал бы на сгенерированный код, а не на исходный `.tsx`.
+        fixStacktrace = (error) => {
+            if (!(error instanceof Error)) return
+            try {
+                vite.ssrFixStacktrace(error)
+            } catch {
+                // Стек мог быть уже изменён (например, ошибка пришла из плагина).
+            }
+        }
         entryScriptSrc = '/@id/__x00__virtual:tusten/client-entry'
     } else {
         const serverEntry = path.join(outDir, 'server', 'entry.js')
@@ -183,7 +182,6 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
             SliceRegistry: typeof SliceRegistry
             renderLayoutChain: typeof renderLayoutChain
             RootErrorBoundary: typeof RootErrorBoundary
-            RootLoading: typeof RootLoading
             RootNotFound: typeof RootNotFound
         } & TustenClientI18nApi
 
@@ -192,7 +190,6 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         SliceRegistry = entryMod.SliceRegistry
         renderLayoutChain = entryMod.renderLayoutChain
         RootErrorBoundary = entryMod.RootErrorBoundary
-        RootLoading = entryMod.RootLoading
         RootNotFound = entryMod.RootNotFound
         loadModule = createProdModuleLoader(serverEntry)
         entryScriptSrc = '/client.js'
@@ -256,13 +253,12 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         projectDir,
         clientDir,
         routeTree,
-        manifest,
-        mode,
         globalRegistry,
         RootProvider,
         SliceRegistry,
         loadModule,
         isDev,
+        fixStacktrace,
         entryScriptSrc,
         clientManifest,
         clientOutPublicPrefix,
@@ -271,7 +267,6 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         i18n: i18nRuntime,
         renderLayoutChain,
         RootErrorBoundary,
-        RootLoading,
         RootNotFound,
     })
 

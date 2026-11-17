@@ -9,7 +9,7 @@
  */
 
 // Pure API из `tusten` (defineConfig, Slice, TustenError, computePath, types).
-export * from '../index'
+export * from '..'
 
 // React-специфика.
 export { RootProvider, useResourceContext } from './context/RootProvider'
@@ -21,7 +21,11 @@ export { useSliceRef } from './hooks/useSliceRef'
 export { useSliceInternal } from './hooks/useSliceInternal'
 export type { UseSliceInternalOptions } from './hooks/useSliceInternal'
 export { useRouter, getRouter } from './hooks/useRouter'
-export type { TustenRouterApi } from './hooks/useRouter'
+export type { TustenRouterApi, RouterReloadOptions } from './hooks/useRouter'
+export { useNavigation } from './hooks/useNavigation'
+export type { TustenNavigation } from './hooks/useNavigation'
+export { useRoute } from './hooks/useRoute'
+export type { RootControllerProps, RootControllerStatus } from './root-controller'
 export { useParams } from './hooks/useParams'
 export { useQuery } from './hooks/useQuery'
 export { usePathname } from './hooks/usePathname'

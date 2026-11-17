@@ -11,7 +11,7 @@ export function View(): JSX.Element {
     const params = useParams()
     const path = usePathname()
     const slice = useSlice<PostSlice>('BlogPost')
-    const post = slice?.getState()
+    const post = slice?.state
 
     return (
         <div className="space-y-4">

@@ -1,5 +1,5 @@
 import type { TustenI18nConfig } from '../../types'
-import { LOCALE_COOKIE } from '../../shared/locale'
+import { LOCALE_COOKIE } from '../../core/locale'
 
 /**
  * Определяет locale HTTP-запроса: cookie → `Accept-Language` → `defaultLocale`.
@@ -18,7 +18,7 @@ export function resolveRequestLocale(
     i18n: TustenI18nConfig,
 ): string {
     return (
-        readLocaleCookie(input.cookie, i18n.locales) ??
+        readLocaleCookie(input.cookie, i18n.locales, i18n.key) ??
         negotiateAcceptLanguage(input.acceptLanguage, i18n.locales) ??
         i18n.defaultLocale
     )
@@ -30,14 +30,20 @@ export function resolveRequestLocale(
  *
  * @param cookieHeader заголовок `Cookie`.
  * @param locales допустимые locale.
+ * @param key имя cookie из `i18n.key`; `undefined` — `LOCALE_COOKIE`.
  * @returns locale из cookie или `undefined`.
  */
-function readLocaleCookie(cookieHeader: string | undefined, locales: readonly string[]): string | undefined {
+function readLocaleCookie(
+    cookieHeader: string | undefined,
+    locales: readonly string[],
+    key?: string,
+): string | undefined {
     if (!cookieHeader) return undefined
     for (const pair of cookieHeader.split(';')) {
         const idx = pair.indexOf('=')
         if (idx === -1) continue
-        if (pair.slice(0, idx).trim() !== LOCALE_COOKIE) continue
+        const cookieKey = key ?? LOCALE_COOKIE
+        if (pair.slice(0, idx).trim() !== cookieKey) continue
 
         // Битый percent-encoding не должен ронять запрос: это данные клиента.
         let value: string

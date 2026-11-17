@@ -3,8 +3,7 @@ import { Button } from '../shared/Button'
 import {
     useSlice,
     useStrictSlice,
-    usePathname,
-    useRouter,
+    useNavigation,
     Link,
     usePageMeta,
     getLocale,
@@ -30,23 +29,23 @@ const SWITCHER_LOCALES = ['ru', 'en'] as const
  *   - `useStrictSlice` — гарантированный слайс (`userInfo` в deps);
  *   - `useSlice` — page-слайс `UserList` (может быть undefined);
  *   - API-запрос через `fetch('/api/ping')`;
- *   - `usePathname` + `useRouter` + `<Link>` для навигации.
+ *   - `useNavigation` + `<Link>` для навигации и перезагрузки данных.
  *
  * @returns JSX-элемент.
  */
 export function View(): JSX.Element {
     const user = useStrictSlice<UserInfoSlice>('userInfo')
-    const userState = user.getState()
+    const userState = user.state
     const currentLocale = getLocale()
     usePageMeta({
         meta: [{ name: 'description', content: 'Home page of tusten demo' }],
     })
 
     const list = useSlice<UserListSlice>('UserList')
-    const listState = list?.getState()
+    const listState = list?.state
 
-    const path = usePathname()
-    const router = useRouter()
+    const nav = useNavigation()
+    const path = nav.pathname
 
     const [apiResult, setApiResult] = useState<string | null>(null)
     const [apiLoading, setApiLoading] = useState(false)
@@ -106,7 +105,7 @@ export function View(): JSX.Element {
 
                 <Card title="UserList" badge="useSlice" badgeHint="page · may be undefined">
                     {listState ? (
-                        <div>
+                        <div className="flex flex-col gap-2">
                             <p className="text-sm text-slate-500">
                                 {template(
                                     rk(
@@ -116,22 +115,16 @@ export function View(): JSX.Element {
                                 )}
                                 :
                             </p>
-                            <div className="flex flex-row gap-2">
-                                <button
-                                    onClick={() => listState.reload()}
-                                    className="mt-2 rounded-md bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-200"
-                                >
-                                    {`${rk('перезагрузить')}()`}
-                                </button>
+                            <div className="flex flex-row flex-wrap gap-2">
                                 <button
                                     onClick={() => user?.setState({ name: 'Новое имя' })}
-                                    className="mt-2 rounded-md bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-200"
+                                    className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:bg-slate-300"
                                 >
                                     {`${rk('Изменить имя')} user`}
                                 </button>
                                 <button
                                     onClick={() => list?.setState({ total: 895632 })}
-                                    className="mt-2 rounded-md bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-200"
+                                    className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:bg-slate-300"
                                 >
                                     {`${rk('Изменить')} total`}
                                 </button>
@@ -188,7 +181,7 @@ export function View(): JSX.Element {
                     </div>
                 </Card>
 
-                <Card title="Router" badge="usePathname + useRouter">
+                <Card title="Router" badge="useNavigation">
                     <p className="text-sm text-slate-500">current path:</p>
                     <code className="mt-1 inline-block rounded bg-slate-100 px-2 py-0.5 font-mono text-sm text-slate-700">
                         {path}
@@ -201,7 +194,7 @@ export function View(): JSX.Element {
                             → About (Link)
                         </Link>
                         <button
-                            onClick={() => void router.push('/about')}
+                            onClick={() => void nav.push('/about')}
                             className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                         >
                             → About (push)
@@ -213,6 +206,24 @@ export function View(): JSX.Element {
                         >
                             → /blog/hello
                         </Link>
+                        <button
+                            onClick={() => listState?.reload()}
+                            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:bg-slate-300"
+                        >
+                            {`${rk('перезагрузить')}()`}
+                        </button>
+                        <button
+                            onClick={() => void nav.reload()}
+                            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:bg-slate-300"
+                        >
+                            {`${rk('nav.reload')}()`}
+                        </button>
+                        <button
+                            onClick={() => void nav.reload({ remount: true })}
+                            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:bg-slate-300"
+                        >
+                            {`${rk('nav.reload')}({ remount: true })`}
+                        </button>
                     </div>
                 </Card>
                 <Card title="i18n" badge="setLocale" badgeHint="cookie + reload">
@@ -232,7 +243,9 @@ export function View(): JSX.Element {
                         ))}
                     </div>
                 </Card>
-                <Button>{`${rk('Кнопка с локальным')} CSS`}</Button>
+                <div>
+                    <Button>{`${rk('Кнопка с локальным')} CSS`}</Button>
+                </div>
             </div>
         </div>
     )

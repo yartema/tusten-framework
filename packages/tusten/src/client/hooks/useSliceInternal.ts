@@ -26,12 +26,17 @@ export function useSliceInternal<S extends AbstractSlice<unknown>>(
 ): S | undefined {
     const { sliceRegistry } = useResourceContext()
     const { observeState = true, strict = false } = options
+    // Инстанс может быть заменён без notifyKey (SliceRegistry.adoptPage /
+    // adoptGlobal при router.reload). Если не включить его в зависимости
+    // subscribe, useSyncExternalStore останется подписан на уничтоженный
+    // слайс, и setState нового инстанса не будет перерисовывать компонент.
+    const slice = sliceRegistry.get(key) as S | undefined
 
     // Подписка: следим и за изменениями state текущего инстанса, и за
     // сменой инстанса по ключу (setPage/setGlobal/dispose).
     const subscribe = useCallback(
         (listener: () => void) => {
-            let current = sliceRegistry.get(key)
+            let current: AbstractSlice<unknown> | undefined = sliceRegistry.get(key)
             let unsubSlice = current?.subscribe(listener)
 
             const unsubKey = sliceRegistry.subscribeKey(key, () => {
@@ -49,13 +54,13 @@ export function useSliceInternal<S extends AbstractSlice<unknown>>(
                 unsubSlice?.()
             }
         },
-        [sliceRegistry, key],
+        [sliceRegistry, key, slice],
     )
 
     const getSnapshot = useCallback(() => {
         const slice = sliceRegistry.get(key)
         if (!slice) return undefined
-        return observeState ? slice.getState() : slice
+        return observeState ? slice.state : slice
     }, [sliceRegistry, key, observeState])
 
     useSyncExternalStore(subscribe, getSnapshot, getSnapshot)

@@ -3,14 +3,14 @@
 
 import path from 'node:path'
 import { readFileSync } from 'node:fs'
-import { loadConfig } from './config'
-import { scan, scanI18n } from './scanner'
-import { buildRouteTree } from './route-tree'
-import { buildManifest } from './manifest'
-import { __initResolver } from './resolver'
+import { loadConfig } from './core/config'
+import { scan, scanI18n } from './core/scanner'
+import { buildRouteTree } from './core/route-tree'
+import { buildManifest } from './core/manifest'
+import { __initResolver } from './core/resolver'
 import { collectFactoryModules } from './build/collect-factories'
 import type { FactoryMap, TustenI18nConfig } from './types'
-import { TustenError } from './errors'
+import { TustenError } from './core/errors'
 import { parseDictionary } from './vite/i18n'
 import { scanRpcObjects } from './server/rpc-scanner'
 import { RpcRegistry } from './server/rpc-registry'
@@ -114,9 +114,16 @@ async function inspect(): Promise<void> {
     } else {
         for (const [id, routePath] of routeTree.paths) {
             const marker = id === routeTree.indexRouteId ? ' [index]' : ''
-            console.log(`  ${routePath.padEnd(30)} (${id})${marker}`)
+            const chain = routeTree.layoutChains.get(id) ?? []
+            const layout = chain.length > 0 ? `  layout: ${chain.join(' → ')}` : ''
+            console.log(`  ${routePath.padEnd(30)} (${id})${marker}${layout}`)
         }
     }
+
+    console.log('\nClient:')
+    console.log(`  root: ${config.client.root.component ?? '(none)'}`)
+    const container = config.client.root.container
+    console.log(`  container: <${container.tag}${container.id ? ` id="${container.id}"` : ''} data-tusten-root>`)
 
     console.log('\nRPC methods:')
     if (!rpcRegistry || rpcRegistry.size === 0) {

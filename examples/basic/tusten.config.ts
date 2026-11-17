@@ -7,9 +7,13 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
     ssr: true,
     client: {
-        layouts: {
-            main: './layouts/Main.tsx',
-            admin: './layouts/Admin.tsx',
+        root: {
+            component: 'Page/Controller:Root',
+            container: {
+                tag: 'div',
+                id: 'app',
+                attributes: { class: 'theme-default', ['data-qa']: 'main-container' },
+            },
         },
         css: ['styles/main.css'],
         components: {

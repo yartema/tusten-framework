@@ -75,7 +75,7 @@ Desktop.ini
 # === Vite press / docs build (на будущее) ===
 docs/.vitepress/dist/
 docs/.vitepress/cache/
-docs/
+dev_docs/
 
 # === Misc ===
 .cache-loader/
@@ -86,8 +86,8 @@ tmp/
 .parcel-cache/
 
 # === Generated docs ===
-# Копии корневых файлов: packages/tusten/package.json → "prepack"
-# (copyFileSync('../../README.md' | '../../CHANGELOG.md')). Правим только корневые.
+# Копия корневого README: packages/tusten/package.json → "prepack"
+# (copyFileSync('../../README.md', 'README.md')). Правим только корневой.
+# packages/tusten/CHANGELOG.md — источник истины, отслеживается git.
 packages/tusten/README.md
-packages/tusten/CHANGELOG.md
 packages/setti/README.md

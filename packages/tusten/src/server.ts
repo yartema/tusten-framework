@@ -6,13 +6,13 @@
  */
 
 // Конфиг.
-export { loadConfig } from './config'
+export { loadConfig } from './core/config'
 
 // Резолвер, сканер, дерево, манифест.
-export { resolveModule } from './resolver'
-export { scan } from './scanner'
-export { buildRouteTree } from './route-tree'
-export { buildManifest } from './manifest'
+export { resolveModule } from './core/resolver'
+export { scan } from './core/scanner'
+export { buildRouteTree } from './core/route-tree'
+export { buildManifest } from './core/manifest'
 
 // Сервер.
 export { createServer } from './server/create-server'
@@ -20,8 +20,8 @@ export type { CreateServerOptions, TustenServerMode } from './server/create-serv
 
 export { createDevModuleLoader, createProdModuleLoader } from './server/module-loader'
 
-export { runPrefetch } from './shared/prefetch'
-export type { PrefetchContext, PrefetchResult, PrefetchSliceInfo } from './shared/prefetch'
+export { runPrefetch } from './core/prefetch'
+export type { PrefetchContext, PrefetchResult, PrefetchSliceInfo } from './core/prefetch'
 
 export { serializeState, stringifyState } from './server/serialize'
 export type { SerializedState } from './server/serialize'
@@ -41,8 +41,8 @@ export { buildServer } from './build/build-server'
 export type { BuildServerOptions } from './build/build-server'
 export { collectFactoryModules } from './build/collect-factories'
 
-export { defineServerRoutes } from './define-server-routes'
-export { defineServerPlugins } from './define-server-plugins'
+export { defineServerRoutes } from './core/define-server-routes'
+export { defineServerPlugins } from './core/define-server-plugins'
 export { loadServerRoutes } from './server/server-routes-loader'
 export { loadServerPlugins } from './server/server-plugins-loader'
 export { registerServerPlugins, registerServerRoutes } from './server/api-register'
@@ -57,7 +57,7 @@ export { runServerMiddleware } from './server/run-server-middleware'
 export type { ServerMiddlewareContext, ServerMiddlewareResult } from './server/run-server-middleware'
 export { runGlobalPrefetch, runPagePrefetch } from './server/prefetch'
 export type { MiddlewareSide, MiddlewareFn } from './server/middleware-loader'
-export { defineObject } from './define-object'
+export { defineObject } from './core/define-object'
 export { scanRpcObjects } from './server/rpc-scanner'
 export { RpcRegistry } from './server/rpc-registry'
 export type { RpcRegisteredMethod } from './server/rpc-registry'
@@ -82,4 +82,4 @@ export type { RpcHandlerOptions } from './server/rpc-handler'
 export { createRpcExecutor } from './server/rpc-executor'
 export { runWithRpcContext, getRpcContext, parseCookieHeader } from './server/rpc/als'
 export type { RpcAlsContext } from './server/rpc/als'
-export { TustenError, RpcError } from './errors'
+export { TustenError, RpcError } from './core/errors'

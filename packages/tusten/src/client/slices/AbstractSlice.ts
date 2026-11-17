@@ -6,7 +6,7 @@
  * Жизненный цикл:
  *   1. Создаётся (например, Loader'ом) — `_state === undefined`.
  *   2. `hydrate(result)` — единожды, `_state = _initState(result)`.
- *   3. Подписчики через `subscribe`, чтение через `getState`.
+ *   3. Подписчики через `subscribe`, чтение через `state`.
  *   4. `setState` — патч (мерж для объектов) + notify.
  *   5. `reset` — возврат к `_initialState`.
  *   6. `destroy()` — очистка подписчиков и состояния (при навигации).
@@ -121,19 +121,33 @@ export abstract class AbstractSlice<TState> {
     /**
      * Текущее состояние.
      *
+     * Читается как обычное свойство — `slice.state`. До первого
+     * hydrate/setState значение `undefined` (тип `TState` — та же
+     * договорённость, что была у `getState()`).
+     *
      * @returns состояние слайса.
      */
-    getState(): TState {
+    get state(): TState {
         return this._state as TState
     }
 
     /**
-     * Snapshot для SSR/гидратации (=== getState).
+     * @deprecated Используйте свойство `state` — `getState()` оставлен как
+     * алиас.
+     *
+     * @returns состояние слайса.
+     */
+    getState(): TState {
+        return this.state
+    }
+
+    /**
+     * Snapshot для SSR/гидратации (=== state).
      *
      * @returns состояние слайса.
      */
     getServerSnapshot(): TState {
-        return this._state as TState
+        return this.state
     }
 
     /**

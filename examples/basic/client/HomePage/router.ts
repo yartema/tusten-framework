@@ -8,10 +8,10 @@ export default defineRoute([
     {
         id: 'home',
         index: true,
+        layout: 'layouts/Main',
         metaConfig: {
             title: 'Главная',
         },
-        type: 'main',
         middleware: [{ id: 'auth', handler: 'client/middleware/auth' }],
         contentConfig: {
             workspaceConfig: {

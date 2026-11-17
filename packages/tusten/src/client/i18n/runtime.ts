@@ -1,4 +1,4 @@
-import { getLocale, setLocaleResolver } from './locale'
+import { getLocale, setLocaleCookieKey, setLocaleResolver } from './locale'
 import type { I18nDictionary, RkFunction } from './create-rk'
 
 /**
@@ -11,6 +11,8 @@ export interface I18nBootstrap {
     locale: string
     /** Словари использованных при SSR модулей: `moduleId → словарь для locale`. */
     dicts?: Record<string, I18nDictionary>
+    /** Имя ключа в куки */
+    cookieKey?: string
 }
 
 /**
@@ -39,6 +41,7 @@ export function initI18n(bootstrap: I18nBootstrap): void {
     const locale = bootstrap.locale
     boot = { locale, dicts: bootstrap.dicts ?? {} }
     setLocaleResolver(() => locale)
+    setLocaleCookieKey(bootstrap.cookieKey)
     for (const [moduleId, rk] of instances) seedFromBoot(moduleId, rk)
 }
 

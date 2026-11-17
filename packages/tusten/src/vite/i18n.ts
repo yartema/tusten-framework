@@ -1,4 +1,4 @@
-import { TustenError } from '../errors'
+import { TustenError } from '../core/errors'
 
 /**
  * Генераторы virtual-модулей i18n для Vite-плагина.

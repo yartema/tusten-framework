@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { createJiti } from 'jiti'
 import { fileExists } from '../utils/fs'
-import { TustenError } from '../errors'
+import { TustenError } from '../core/errors'
 import type { MiddlewareDef } from '../types'
 
 /** Сторона, для которой грузим middleware. */

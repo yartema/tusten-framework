@@ -1,6 +1,6 @@
 import { Remote } from './Remote'
 import { isServer, getServerExecutor, getCurrentHeaders, getServerCache } from './server-bridge'
-import { JsonRpcErrorPayload, RpcError } from '../../errors'
+import { JsonRpcErrorPayload, RpcError } from '../../core/errors'
 import { stringify as devalueStringify } from 'devalue'
 import type { ServiceOptions, CallOptions, ServiceCacheEntry } from '../../types'
 

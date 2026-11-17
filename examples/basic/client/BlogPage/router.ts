@@ -10,7 +10,7 @@ export default defineRoute([
     {
         id: 'blog',
         slug: [':id'],
-        type: 'main',
+        layout: 'layouts/Main',
         metaConfig: {
             readMethod: 'Blogs.ReadMetaInfo',
             cache: 60_000,

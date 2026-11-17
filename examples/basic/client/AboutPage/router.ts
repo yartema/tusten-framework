@@ -6,10 +6,10 @@ import { defineRoute } from '@tusten/core'
 export default defineRoute([
     {
         id: 'about',
+        layout: 'layouts/Main',
         metaConfig: {
             title: 'About Page',
         },
-        type: 'main',
         middleware: [],
         contentConfig: {
             workspaceConfig: {

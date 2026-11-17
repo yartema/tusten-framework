@@ -9,11 +9,11 @@
  */
 
 // Конфиг (pure, без jiti).
-export { defineConfig } from './define-config'
+export { defineConfig } from './core/define-config'
 
 // Маршруты и глобальные загрузчики.
-export { defineRoute } from './define-route'
-export { defineGlobalLoader } from './define-global-loader'
+export { defineRoute } from './core/define-route'
+export { defineGlobalLoader } from './core/define-global-loader'
 
 // Классы слайсов (pure TS, без React).
 export { AbstractSlice } from './client/slices/AbstractSlice'
@@ -22,10 +22,10 @@ export { SliceRegistry } from './client/slices/SliceRegistry'
 export type { SliceListener, SlicePatch, SliceUpdater } from './client/slices/AbstractSlice'
 
 // URL-билдер.
-export { computePath } from './url'
+export { computePath } from './core/url'
 
 // Ошибки.
-export { TustenError } from './errors'
+export { TustenError } from './core/errors'
 
 // Типы.
 export type {
@@ -47,6 +47,7 @@ export type {
     ServerPluginDef,
     ServerPluginsOptions,
     TustenClientRouter,
+    TustenClientRoute,
     RpcOptions,
     ResolvedRpcOptions,
     RpcContext,
@@ -60,15 +61,18 @@ export type {
     CrudOp,
     IBinding,
 } from './types'
-export { RpcError } from './errors'
-export type { JsonRpcErrorPayload } from './errors'
+export { RpcError } from './core/errors'
+export type { JsonRpcErrorPayload } from './core/errors'
 export { Service } from './client/rpc/Service'
 
 // Prefetch (изоморфный).
-export { runGlobalPrefetch, runPagePrefetch, runPrefetch } from './shared/prefetch'
-export type { PrefetchContext, PrefetchRegistry, PrefetchResult, PrefetchSliceInfo } from './shared/prefetch'
-export { RootErrorBoundary, RootLoading, RootNotFound } from './client/index'
-export type { RootErrorBoundaryProps } from './client/index'
-export { devalueParse, devalueStringify } from './client/index'
-export { resolveMeta } from './shared/meta-resolver'
+export { runGlobalPrefetch, runPagePrefetch, runPrefetch } from './core/prefetch'
+export type { PrefetchContext, PrefetchRegistry, PrefetchResult, PrefetchSliceInfo } from './core/prefetch'
+export { RootErrorBoundary, RootLoading, RootNotFound } from './client'
+export type { RootErrorBoundaryProps } from './client'
+export { devalueParse, devalueStringify } from './client'
+export { resolveMeta } from './core/meta-resolver'
+export { toClientRoute, pickClientRoute, collectParentIds } from './core/client-route'
+export type { ClientRouteContext } from './core/client-route'
+export type { TustenRootConfig, ResolvedRootConfig, TustenRootElementConfig, ResolvedRootElement } from './types'
 export type { MetaTag, MetaResult, MetaConfig, PageMeta } from './types'

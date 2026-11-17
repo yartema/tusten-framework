@@ -1,4 +1,4 @@
-import { TustenError } from '../../errors'
+import { TustenError } from '../../core/errors'
 import { getLocale } from './locale'
 
 /**

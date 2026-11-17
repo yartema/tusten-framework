@@ -1,6 +1,6 @@
 {
     "name": "@tusten/core",
-    "version": "0.2.0-beta.5",
+    "version": "0.2.0-beta.6",
     "type": "module",
     "description": "Fullstack React framework on React 19 + Fastify + Vite",
     "license": "MIT",
@@ -51,6 +51,10 @@
             "types": "./dist/client/index.d.ts",
             "import": "./dist/client/index.js"
         },
+        "./client/dev-overlay": {
+            "types": "./dist/client/dev-overlay.d.ts",
+            "import": "./dist/client/dev-overlay.js"
+        },
         "./i18n": {
             "types": "./types/i18n.d.ts"
         },
@@ -59,11 +63,11 @@
     "scripts": {
         "build": "tsup && node scripts/postbuild.mjs",
         "typecheck": "tsc --noEmit",
-        "test": "vitest run",
-        "test:watch": "vitest",
-        "test:coverage": "vitest run --coverage",
+        "test": "vitest run --root ../..",
+        "test:watch": "vitest --root ../..",
+        "test:coverage": "vitest run --root ../.. --coverage",
         "prepublishOnly": "pnpm build",
-        "prepack": "node -e \"const fs=require('node:fs');fs.copyFileSync('../../README.md','README.md');fs.copyFileSync('../../CHANGELOG.md','CHANGELOG.md')\"",
+        "prepack": "node -e \"const fs=require('node:fs');fs.copyFileSync('../../README.md','README.md')\"",
         "publish:alpha": "pnpm build && npm publish --tag alpha --access public && npm dist-tag add @tusten/core@$(node -p \"require('./package.json').version\") alpha && npm dist-tag add @tusten/core@$(node -p \"require('./package.json').version\") latest"
     },
     "dependencies": {

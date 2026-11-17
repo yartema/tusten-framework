@@ -1,4 +1,4 @@
-import { TustenError } from '../../errors'
+import { TustenError } from '../../core/errors'
 import type { AbstractSlice } from './AbstractSlice'
 
 /**
@@ -136,6 +136,31 @@ export class SliceRegistry {
 
         for (const [key, slice] of source.page) this.page.set(key, slice)
         source.page.clear()
+    }
+
+    /**
+     * Атомарно переносит global-слайсы из другого реестра (`router.reload`).
+     *
+     * Заменяются только ключи из `source`; глобальные слайсы, которых там нет,
+     * остаются как были. Это важно при partial reload: маршрут может зависеть
+     * не от всех загруженных глобальных лоадеров.
+     *
+     * Как и `adoptPage()`, не нотифицирует подписчиков: вызывающий код сразу
+     * делает `rootRef.render`, и старые подписки не должны увидеть уничтоженные
+     * слайсы. Нужен, чтобы при ошибке reload не подменять глобальные состояния
+     * частично — они переезжают только после успешной загрузки всех лоадеров.
+     *
+     * @param source реестр с прогретыми global-слайсами (после вызова пуст).
+     */
+    adoptGlobal(source: SliceRegistry): void {
+        if (source === this) return
+
+        for (const [key, slice] of source.global) {
+            const prev = this.global.get(key)
+            if (prev && prev !== slice) prev.destroy()
+            this.global.set(key, slice)
+        }
+        source.global.clear()
     }
 
     /** Уничтожает все слайсы (конец запроса / размонтирование). */

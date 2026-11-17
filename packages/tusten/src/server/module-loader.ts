@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { ViteDevServer } from 'vite'
-import { TustenError } from '../errors'
+import { TustenError } from '../core/errors'
 import { resolveRealPath } from '../utils/fs'
 
 /**
@@ -52,7 +52,10 @@ export function createProdModuleLoader(serverEntryPath: string): (spec: string) 
 
     return async (spec: string): Promise<unknown> => {
         const modules = await ensureLoaded()
-        const [file, exportName] = spec.split(':')
+        // Спеки в конфиге могут быть с `./` (root.component, layout), а ключи
+        // в сгенерированном entry — уже без него.
+        const [rawFile, exportName] = spec.split(':')
+        const file = rawFile.replace(/^\.\//, '')
         const ns = modules[file]
         if (!ns) {
             throw new TustenError(

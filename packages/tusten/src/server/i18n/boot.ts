@@ -26,8 +26,9 @@ export function serializeForScript(value: unknown): string {
  *
  * @param locale locale страницы.
  * @param dicts словари использованных модулей: `moduleId → словарь`.
+ * @param cookieKey имя cookie для `setLocale` на клиенте; `undefined` — дефолт.
  * @returns HTML `<script>`.
  */
-export function buildI18nBootScript(locale: string, dicts: Record<string, I18nDictionary>): string {
-    return `<script>window.__ROOT_I18N__=${serializeForScript({ locale, dicts })}</script>`
+export function buildI18nBootScript(locale: string, dicts: Record<string, I18nDictionary>, cookieKey?: string): string {
+    return `<script>window.__ROOT_I18N__=${serializeForScript({ locale, dicts, cookieKey })}</script>`
 }

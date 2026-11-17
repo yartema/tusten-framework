@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { createJiti } from 'jiti'
-import { TustenError } from '../errors'
+import { TustenError } from '../core/errors'
 import type { RpcObjectDefinition } from '../types'
 
 /**

@@ -2,7 +2,7 @@ import path from 'node:path'
 import { createJiti } from 'jiti'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { ServerPluginDef, ServerRoute } from '../types'
-import { TustenError } from '../errors'
+import { TustenError } from '../core/errors'
 import { fileExists } from '../utils/fs'
 
 /** Контекст handler'а API-роута. */

@@ -1,9 +1,18 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import type { Plugin, ViteDevServer } from 'vite'
-import type { CompiledRoute, FactoryMap, MiddlewareDef, TustenRoute, ResolvedTustenConfig, RouteTree } from '../types'
+import type {
+    CompiledRoute,
+    FactoryMap,
+    MiddlewareDef,
+    TustenClientRoute,
+    ResolvedRootElement,
+    ResolvedTustenConfig,
+    RouteTree,
+} from '../types'
+import { collectParentIds, toClientRoute } from '../core/client-route'
 import { toVitePath } from '../utils/fs'
-import { scanI18n } from '../scanner'
+import { scanI18n } from '../core/scanner'
 import {
     I18N_DICT_PREFIX,
     I18N_USER_PREFIX,
@@ -108,30 +117,25 @@ export function tustenPlugin(options: TustenVitePluginOptions): Plugin {
         const urlPath = routeTree.paths.get(id)!
         const templatePath = resolveSpec(route.contentConfig.workspaceConfig.template)
         const templateExport = route.contentConfig.workspaceConfig.template.split(':')[1] ?? 'default'
+        // Публичная проекция: та же функция используется SSR-handler'ом,
+        // поэтому root controller видит одинаковую форму на сервере и клиенте.
+        const clientRoute = toClientRoute(route, {
+            path: urlPath,
+            parentIds: collectParentIds(id, routeTree.byId),
+            layoutChain: routeTree.layoutChains.get(id) ?? [],
+        })
 
         return {
-            id,
-            path: urlPath,
-            title: route.metaConfig?.title ?? 'Страница',
-            description: route.metaConfig?.meta?.find((m) => m.name === 'description')?.content ?? null,
+            ...clientRoute,
             templatePath,
             templateExport,
-            middleware: route.middleware ?? [],
-            meta: route.meta ?? {},
-            metaConfig: route.metaConfig ?? null,
-            contentConfig: route.contentConfig,
-            layoutChain: routeTree.layoutChains.get(id) ?? [],
         }
     })
 
-    // ---- 2. layoutPaths: type → { path, export } ----
-    const layoutPaths: Record<string, { path: string; export: string }> = {}
-    for (const [type, rel] of Object.entries(config.client.layouts)) {
-        layoutPaths[type] = {
-            path: resolveSpec(rel),
-            export: rel.split(':')[1] ?? 'default',
-        }
-    }
+    // Root controller — обычный пользовательский компонент в client bundle,
+    // но грузится один раз и оборачивает все состояния.
+    const rootSpec = config.client.root.component
+    const rootMeta = rootSpec ? { path: resolveSpec(rootSpec), export: rootSpec.split(':')[1] ?? 'default' } : null
 
     // ---- 3. specToPath (client bundle) ----
     const specToPath = new Map<string, string>()
@@ -144,8 +148,7 @@ export function tustenPlugin(options: TustenVitePluginOptions): Plugin {
 
     for (const route of routeTree.byId.values()) {
         addSpec(route.contentConfig.workspaceConfig.template)
-        const layoutRel = config.client.layouts[route.type]
-        if (layoutRel) addSpec(layoutRel)
+        for (const layoutSpec of routeTree.layoutChains.get(route.id) ?? []) addSpec(layoutSpec)
         addSpec(route.contentConfig.prefetchConfig.configLoader)
     }
     for (const spec of factoryModules) addSpec(spec)
@@ -165,13 +168,13 @@ export function tustenPlugin(options: TustenVitePluginOptions): Plugin {
         const spec = config.client.components[key]
         if (spec) addSpec(spec)
     }
+    if (rootSpec) addSpec(rootSpec)
 
     // ---- 4. allSsrSpecs (SSR bundle) ----
     const allSsrSpecs = new Set<string>()
     for (const route of routeTree.byId.values()) {
         allSsrSpecs.add(route.contentConfig.workspaceConfig.template)
-        const layoutRel = config.client.layouts[route.type]
-        if (layoutRel) allSsrSpecs.add(layoutRel)
+        for (const layoutSpec of routeTree.layoutChains.get(route.id) ?? []) allSsrSpecs.add(layoutSpec)
         allSsrSpecs.add(route.contentConfig.prefetchConfig.configLoader)
     }
 
@@ -193,6 +196,7 @@ export function tustenPlugin(options: TustenVitePluginOptions): Plugin {
         const spec = config.client.components[key]
         if (spec) allSsrSpecs.add(spec)
     }
+    if (rootSpec) allSsrSpecs.add(rootSpec)
 
     const ssrModulePaths = new Map<string, string>()
     for (const spec of allSsrSpecs) {
@@ -261,11 +265,12 @@ export function tustenPlugin(options: TustenVitePluginOptions): Plugin {
                 return generateRoutesModule(
                     routesData,
                     routeTree.compiled,
-                    layoutPaths,
                     specToPath,
                     middlewarePaths,
                     globalFactories,
                     componentsMeta,
+                    rootMeta,
+                    config.client.root.container,
                 )
             }
             if (id === RESOLVED_ENTRY) return generateEntryModule(cssFiles)
@@ -326,19 +331,10 @@ function invalidateI18nModules(server: ViteDevServer): void {
     }
 }
 
-/** Запись маршрута для генерации. */
-interface RouteEntry {
-    id: string
-    path: string
-    title: string
-    description: string | null
+/** Запись маршрута для генерации: публичная проекция + внутренние поля загрузчика. */
+interface RouteEntry extends TustenClientRoute {
     templatePath: string
     templateExport: string
-    middleware: MiddlewareDef[]
-    meta: Record<string, unknown>
-    metaConfig: import('../types').MetaConfig | null
-    contentConfig: TustenRoute['contentConfig']
-    layoutChain: string[]
 }
 
 /**
@@ -346,21 +342,23 @@ interface RouteEntry {
  *
  * @param routesData маршруты.
  * @param compiledRoutes скомпилированные паттерны.
- * @param layoutPaths `type → { path, export }`.
  * @param specToPath spec → Vite-путь.
  * @param middlewarePaths handler → Vite-путь.
  * @param globalFactories глобальный реестр.
  * @param componentsMeta метаданные `error` / `loading` / `notFound`.
+ * @param rootMeta метаданные root controller (`null`, если не задан).
+ * @param rootElement настройки контейнера приложения (тег, id, атрибуты).
  * @returns код модуля.
  */
 function generateRoutesModule(
     routesData: RouteEntry[],
     compiledRoutes: CompiledRoute[],
-    layoutPaths: Record<string, { path: string; export: string }>,
     specToPath: Map<string, string>,
     middlewarePaths: Map<string, string>,
     globalFactories: FactoryMap,
     componentsMeta: Record<string, { path: string; export: string } | null>,
+    rootMeta: { path: string; export: string } | null,
+    rootElement: ResolvedRootElement,
 ): string {
     const uniquePaths = new Set<string>()
     for (const p of specToPath.values()) uniquePaths.add(p)
@@ -388,9 +386,11 @@ const middlewareLoaders = {
 ${middlewareLoaders}
 }
 
-const layoutPaths = ${JSON.stringify(layoutPaths, null, 2)}
-
 export const components = ${JSON.stringify(componentsMeta, null, 2)}
+
+export const root = ${JSON.stringify(rootMeta, null, 2)}
+
+export const rootElement = ${JSON.stringify(rootElement, null, 2)}
 
 export const routes = ${JSON.stringify(routesData, null, 2)}
 
@@ -441,10 +441,10 @@ export function findRouteByPath(path) {
 export async function loadRouteModules(route) {
   // Шаблон и все layout грузим одним залпом: каждый последовательный
   // await — это отдельный RTT (на 3G сотни мс).
-  const infos = (route.layoutChain || []).map((t) => layoutPaths[t]).filter(Boolean)
-  const [templateMod, ...layoutMods] = await Promise.all([
+  const layoutSpecs = route.layoutChain || []
+  const [templateMod, ...layoutValues] = await Promise.all([
     moduleLoaders[route.templatePath](),
-    ...infos.map((info) => moduleLoaders[info.path]()),
+    ...layoutSpecs.map((spec) => resolveModule(spec)),
   ])
 
   const Template = templateMod[route.templateExport]
@@ -452,9 +452,7 @@ export async function loadRouteModules(route) {
     throw new Error('Export "' + route.templateExport + '" not found in ' + route.templatePath)
   }
 
-  const Layouts = layoutMods
-    .map((mod, i) => mod[infos[i].export])
-    .filter((Layout) => typeof Layout === 'function')
+  const Layouts = layoutValues.filter((Layout) => typeof Layout === 'function')
 
   return { Template, Layouts }
 }
@@ -467,7 +465,7 @@ export async function loadRouteModules(route) {
  */
 export async function resolveModule(spec) {
   const [file, exportName = 'default'] = spec.split(':')
-  const p = specToPath[file]
+  const p = specToPath[file.replace(/^\\.\\//, '')]
   if (!p) {
     throw new Error('Module not found in client bundle: ' + file)
   }
@@ -555,12 +553,14 @@ import {
   RootNotFound,
   Slice,
   SliceRegistry,
+  Service,
   renderLayoutChain,
   runGlobalPrefetch,
   runPagePrefetch,
   devalueParse,
   initI18n,
   loadRegisteredDictionaries,
+  pickClientRoute,
 } from '@tusten/core/client'
 import {
   findRouteById,
@@ -572,7 +572,28 @@ import {
   resolveComponent,
   globalFactories,
   components,
+  root as rootMeta,
+  rootElement,
 } from '${VIRTUAL_ROUTES}'
+
+// Root controller не задан — оболочка прозрачная.
+function RootPassthrough(props) {
+  return props.children
+}
+
+// Контейнер приложения: data-tusten-root — служебный маркер, поэтому смена
+// id/тега в конфиге не ломает клиент. Старый #root оставлен для совместимости.
+function findRootEl() {
+  return (
+    document.querySelector('[data-tusten-root]') ||
+    (rootElement && rootElement.id ? document.getElementById(rootElement.id) : null) ||
+    document.getElementById('root')
+  )
+}
+
+// Устанавливается в dev-блоке ниже. В production остается no-op: сам оверлей
+// импортируется динамически внутри \`if (import.meta.env.DEV)\` и в бандл не попадает.
+let reportDevError = () => {}
 
 async function hydrateSlicesFromState(stateObj, registry) {
   if (!stateObj || !stateObj.slices) return
@@ -666,9 +687,55 @@ async function clientPrefetch(route, registry, navTarget, skipExisting, pageRegi
   )
 }
 
+/**
+ * Перезапускает только page-лоадеры (reload({ global: false })).
+ *
+ * Глобальные состояния не перезагружаем, но они нужны runPagePrefetch
+ * как зависимости — берём их из текущего реестра.
+ */
+async function clientPrefetchPage(route, registry, pageRegistry, navTarget) {
+  const ctx = {
+    route,
+    globalRegistry: globalFactories,
+    loadModule: resolveModule,
+    registry: pageRegistry,
+    router: {
+      id: route.id,
+      path: navTarget.pathname,
+      params: navTarget.params,
+      query: navTarget.query,
+      request: null,
+    },
+  }
+  const globalStates = new Map()
+  for (const name of Object.keys(globalFactories)) {
+    const slice = registry.get(name)
+    if (slice) globalStates.set(name, slice.state)
+  }
+  await runPagePrefetch(ctx, globalStates)
+}
+
 async function main() {
-  const rootEl = document.getElementById('root')
-  if (!rootEl) throw new Error('tusten: #root element not found')
+  // Dev-оверлей должен стоять до первого рендера: ошибки гидрации и prefetch
+  // случаются раньше, чем пользователь успел бы что-то увидеть.
+  if (import.meta.env.DEV) {
+    try {
+      const overlay = await import('@tusten/core/client/dev-overlay')
+      overlay.installDevOverlay()
+      reportDevError = overlay.showErrorOverlay
+    } catch (err) {
+      console.warn('[tusten] dev overlay failed to load:', err)
+    }
+  }
+
+  const rootEl = findRootEl()
+  if (!rootEl) {
+    throw new Error(
+      'tusten: root element not found (expected <' +
+        ((rootElement && rootElement.tag) || 'div') +
+        ' data-tusten-root>)',
+    )
+  }
 
   // Locale и словари из HTML — до импорта модулей маршрута: их createRk-инстансы
   // создаются именно при импорте и сразу берут свой словарь.
@@ -679,6 +746,10 @@ async function main() {
   const initialPath = window.location.pathname
   const initialMatch = matchRoute(initialPath)
   const initialRoute = initialMatch ? findRouteById(initialMatch.routeId) : null
+
+  // Root controller резолвится один раз: его state и контекст должны переживать
+  // SPA-навигацию. Не задан в конфиге — прозрачная обёртка.
+  const RootControllerComp = (await resolveComponent(rootMeta)) || RootPassthrough
 
   // 404: SSR уже отрендерил кастомную NotFound через renderToString.
   if (!initialRoute) {
@@ -693,8 +764,12 @@ async function main() {
     const nfRegistry = new SliceRegistry()
     const nfTree = createElement(
       RootProvider,
-      { sliceRegistry: nfRegistry, router: notFoundRouter },
-      createElement(NotFoundComp),
+      { sliceRegistry: nfRegistry, router: notFoundRouter, route: null },
+      createElement(
+        RootControllerComp,
+        { route: null, router: notFoundRouter, status: 'not-found' },
+        createElement(NotFoundComp),
+      ),
     )
     if (isSsr) {
       hydrateRoot(rootEl, nfTree)
@@ -731,8 +806,46 @@ async function main() {
 
   let rootRef
   let navSeq = 0
+  // Key страницы: сохраняется при reload без remount и меняется при навигации
+  // и remount-reload. Иначе reload после remount менял бы key обратно и снова
+  // перемонтировал страницу.
+  let currentPageKey = initialPath
 
-  const renderTree = async (route) => {
+  // Единая точка сборки дерева: provider → root controller → состояние.
+  // Root controller не перемонтируется — меняются только props.
+  const renderRoot = (children, router, route, status, error) =>
+    createElement(
+      RootProvider,
+      { sliceRegistry, router, route },
+      createElement(RootControllerComp, { route, router, status, error }, children),
+    )
+
+  // Видимая ошибка вместо молчаливого \`return\`: иначе падение навигации выглядит
+  // как «клик не сработал». В dev параллельно поднимается оверлей со стеком.
+  const renderErrorPage = async (err, source) => {
+    reportDevError(err, source || 'navigation')
+    const ErrorComp = await errorCompP
+    const message = err && err.message ? err.message : String(err)
+    const errorNode = ErrorComp
+      ? createElement(ErrorComp, { error: err })
+      : createElement(
+          'div',
+          { style: { padding: '1rem', color: 'crimson' } },
+          'Error: ' + message,
+        )
+    const currentRoute = findRouteById(currentRouter.routeId)
+    rootRef.render(
+      renderRoot(
+        errorNode,
+        currentRouter,
+        currentRoute ? pickClientRoute(currentRoute) : null,
+        'error',
+        err,
+      ),
+    )
+  }
+
+  const renderTree = async (route, locationKey) => {
     const [{ Template, Layouts }, ErrorComp] = await Promise.all([
       loadRouteModules(route),
       errorCompP,
@@ -740,12 +853,15 @@ async function main() {
     // Словари после импорта модулей: только тогда известно, какие rk-функции существуют.
     // Уже засеянные из HTML словари сетевых запросов не вызывают.
     await loadRegisteredDictionaries()
-    const child = createElement(Template)
-    return createElement(
+    // Ключ по URL: страница перемонтируется при смене пути/параметров,
+    // layouts и root controller — нет (их state сохраняется).
+    const child = createElement(Template, { key: locationKey })
+    const content = createElement(
       RootErrorBoundary,
-      { fallback: ErrorComp },
+      { fallback: ErrorComp, resetKey: locationKey },
       renderLayoutChain(child, Layouts),
     )
+    return { content, route: pickClientRoute(route) }
   }
 
   const navigate = async (path, mode) => {
@@ -754,7 +870,10 @@ async function main() {
       window.location[mode === 'replace' ? 'replace' : 'assign'](path)
       return
     }
-    const from = buildNavTarget(window.location.pathname)
+    const from = buildNavTarget(window.location.pathname + window.location.search)
+    // Токен берём до middleware: иначе медленная цепочка первой навигации
+    // получила бы номер позже более свежей и перезаписала её результат.
+    const navId = ++navSeq
 
     try {
       const redirect = await runClientMiddlewareChain(
@@ -766,27 +885,34 @@ async function main() {
       }
     } catch (err) {
       console.error('[tusten] client middleware failed:', err)
+      reportDevError(err, 'navigation')
       return
     }
+
+    // Пока шёл middleware, пользователь мог уйти на другую страницу.
+    if (navId !== navSeq) return
 
     // Готовим page-слайсы новой страницы в отдельном реестре: старую
     // страницу убиваем только после успешного prefetch + загрузки шаблона,
     // иначе при ошибке пользователь остался бы на живой странице
     // с мёртвыми слайсами.
     const nextPages = new SliceRegistry()
-    // Токен навигации: при быстрых кликах побеждает последний, устаревший
-    // переход не должен перезаписать более свежую страницу.
-    const navId = ++navSeq
     let newTree
+    let newRoute
+    const nextPageKey = to.pathname
     try {
       // Данные и чанки шаблона/layout независимы — грузим параллельно.
-      ;[, newTree] = await Promise.all([
+      let built
+      ;[, built] = await Promise.all([
         clientPrefetch(to.route, sliceRegistry, to, true, nextPages),
-        renderTree(to.route),
+        renderTree(to.route, nextPageKey),
       ])
+      newTree = built.content
+      newRoute = built.route
     } catch (err) {
       nextPages.disposePage()
       console.error('[tusten] client prefetch failed:', err)
+      await renderErrorPage(err, 'navigation')
       return
     }
     if (navId !== navSeq) {
@@ -794,6 +920,7 @@ async function main() {
       return
     }
     sliceRegistry.adoptPage(nextPages)
+    currentPageKey = nextPageKey
 
     if (mode === 'replace') {
       window.history.replaceState({}, '', path)
@@ -810,7 +937,7 @@ async function main() {
     currentRouter = newRouter
 
     rootRef.render(
-      createElement(RootProvider, { sliceRegistry, router: newRouter }, newTree),
+      renderRoot(newTree, newRouter, newRoute, 'ready'),
     )
 
     // Meta (может быть RPC) не блокирует переход: страница уже показана.
@@ -830,10 +957,109 @@ async function main() {
     }
   }
 
+  /**
+   * Перезапускает лоадеры текущего маршрута, не меняя URL и history.
+   *
+   * В отличие от navigate(), ошибка не заменяет страницу на components.error:
+   * пользователь остаётся на текущей странице, Promise реджектится.
+   */
+  const reload = async (options) => {
+    const opts = options || {}
+    const reloadGlobals = opts.global !== false
+    const useCache = opts.cache === true
+    const remount = opts.remount === true
+    const runMiddleware = opts.middleware !== false
+
+    const path = window.location.pathname + window.location.search
+    const to = buildNavTarget(path)
+    // 404: лоадеров нет, а history трогать нельзя. Полная перезагрузка тоже
+    // ничего не изменит — это осознанный no-op.
+    if (!to.route) return
+
+    // Токен берём до middleware: побеждает последняя операция, а не та,
+    // чья middleware-цепочка завершилась позже.
+    const navId = ++navSeq
+
+    if (runMiddleware) {
+      try {
+        const redirect = await runClientMiddlewareChain(
+          fullMiddlewareChain(to.route), to, to,
+        )
+        if (redirect && redirect.redirect) {
+          // Редирект — это уже смена страницы, а не обновление данных.
+          await navigate(redirect.redirect, 'replace')
+          return
+        }
+      } catch (err) {
+        console.error('[tusten] client middleware failed:', err)
+        reportDevError(err, 'reload')
+        throw err
+      }
+      // Пока шёл middleware, пользователь мог начать навигацию.
+      if (navId !== navSeq) return
+    }
+
+    // loadData не должен вернуть закэшированные значения: reload — явное
+    // действие пользователя «покажи свежие данные».
+    if (!useCache) Service.invalidateAll()
+
+    const nextRegistry = new SliceRegistry()
+    // Без remount — тот же key, что у смонтированной страницы (state живёт);
+    // с remount — новый, чтобы React пересоздал шаблон.
+    const nextPageKey = remount
+      ? to.pathname + '#reload:' + navId
+      : currentPageKey
+    let built
+    try {
+      // Слайсы и чанки независимы — грузим параллельно.
+      ;[built] = await Promise.all([
+        renderTree(to.route, nextPageKey),
+        reloadGlobals
+          ? clientPrefetch(to.route, nextRegistry, to, false)
+          : clientPrefetchPage(to.route, sliceRegistry, nextRegistry, to),
+      ])
+    } catch (err) {
+      // nextRegistry содержит и global, и page (при global: false — только page):
+      // удаляем всё, текущая страница остаётся нетронутой.
+      nextRegistry.disposeAll()
+      console.error('[tusten] reload failed:', err)
+      reportDevError(err, 'reload')
+      throw err
+    }
+    if (navId !== navSeq) {
+      nextRegistry.disposeAll()
+      return
+    }
+
+    // Атомарная подмена: только после успешной загрузки всех лоадеров.
+    if (reloadGlobals) sliceRegistry.adoptGlobal(nextRegistry)
+    sliceRegistry.adoptPage(nextRegistry)
+    currentPageKey = nextPageKey
+
+    // Тот же key (без remount) → React сохраняет локальный state страницы,
+    // но перерисовывает дерево и подписывается на новые слайсы.
+    rootRef.render(renderRoot(built.content, currentRouter, built.route, 'ready'))
+
+    document.title = to.route.title || 'tusten'
+    if (to.route.metaConfig) {
+      void resolveMeta(
+        to.route,
+        { id: to.route.id, path: to.pathname, params: to.params, query: to.query, request: null },
+        window.location.href,
+        resolveModule,
+      )
+        .then((meta) => {
+          if (navId === navSeq) document.title = meta.title
+        })
+        .catch((err) => console.debug('[tusten] meta skipped:', err))
+    }
+  }
+
   window.__rootNavigate = {
     push: (p) => navigate(p, 'push'),
     replace: (p) => navigate(p, 'replace'),
     back: () => window.history.back(),
+    reload: (options) => reload(options),
     prefetch: async (p) => {
       const to = buildNavTarget(p)
       if (!to.route) return
@@ -858,7 +1084,9 @@ async function main() {
   }
 
   window.addEventListener('popstate', () => {
-    void navigate(window.location.pathname, 'replace')
+    // query обязателен: иначе back с /about?tab=router уходит на /about
+    // и replaceState затирает предыдущие записи истории.
+    void navigate(window.location.pathname + window.location.search, 'replace')
   })
 
   const initialRouter = currentRouter
@@ -875,31 +1103,31 @@ async function main() {
     }
     // Чанки шаблона/layout и классы слайсов грузятся параллельно:
     // это последний водопад перед hydrateRoot.
-    const [initialTree] = await Promise.all([
-      renderTree(initialRoute),
+    const [{ content, route: clientRoute }] = await Promise.all([
+      renderTree(initialRoute, initialPath),
       hydrateSlicesFromState(stateObj, sliceRegistry),
     ])
     rootRef = hydrateRoot(
       rootEl,
-      createElement(RootProvider, { sliceRegistry, router: initialRouter }, initialTree),
+      renderRoot(content, initialRouter, clientRoute, 'ready'),
       {
         // Mismatch React чинит клиентским рендером (со скачком вёрстки):
         // делаем его заметным, а не молчаливым.
         onRecoverableError: (err) => {
           console.error('[tusten] hydration mismatch (client re-render):', err)
+          reportDevError(err, 'hydration')
         },
       },
     )
   } else {
     // Шаблон и Loading грузятся параллельно; Loading показываем, пока идёт prefetch.
-    const [initialTree, LoadingComp] = await Promise.all([renderTree(initialRoute), loadingCompP])
+    const [{ content, route: clientRoute }, LoadingComp] = await Promise.all([
+      renderTree(initialRoute, initialPath),
+      loadingCompP,
+    ])
     rootRef = createRoot(rootEl)
     rootRef.render(
-      createElement(
-        RootProvider,
-        { sliceRegistry, router: initialRouter },
-        createElement(LoadingComp),
-      ),
+      renderRoot(createElement(LoadingComp), initialRouter, clientRoute, 'loading'),
     )
 
     try {
@@ -908,34 +1136,30 @@ async function main() {
       }, false)
       document.title = initialRoute.title || 'tusten'
       rootRef.render(
-        createElement(
-          RootProvider,
-          { sliceRegistry, router: initialRouter },
-          initialTree,
-        ),
+        renderRoot(content, initialRouter, clientRoute, 'ready'),
       )
     } catch (err) {
       console.error('[tusten] initial prefetch failed:', err)
-      const ErrorComp = await errorCompP
-      const errorNode = ErrorComp
-        ? createElement(ErrorComp, { error: err })
-        : createElement(
-            'div',
-            { style: { padding: '1rem', color: 'crimson' } },
-            'Error: ' + err.message,
-          )
-      rootRef.render(
-        createElement(
-          RootProvider,
-          { sliceRegistry, router: initialRouter },
-          errorNode,
-        ),
-      )
+      await renderErrorPage(err, 'prefetch')
     }
   }
 }
 
-main().catch((err) => { console.error('[tusten] hydration failed:', err) })
+main().catch((err) => {
+  console.error('[tusten] hydration failed:', err)
+  reportDevError(err, 'client')
+  // SPA без SSR: если упало до первого hydrateRoot, экран остался бы пустым.
+  // В SSR-режиме серверный HTML уже виден — не затираем его.
+  if (!import.meta.env.DEV && window.__ROOT_SSR__ !== true) {
+    const rootEl = findRootEl()
+    if (rootEl && rootEl.childElementCount === 0) {
+      const message = document.createElement('p')
+      message.style.cssText = 'padding:1rem;font:15px/1.5 system-ui,sans-serif;color:#b91c1c'
+      message.textContent = 'Не удалось загрузить страницу. Обновите её.'
+      rootEl.appendChild(message)
+    }
+  }
+})
 `
 }
 

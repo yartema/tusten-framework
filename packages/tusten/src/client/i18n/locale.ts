@@ -1,5 +1,5 @@
-import { TustenError } from '../../errors'
-import { LOCALE_COOKIE, isValidLocale } from '../../shared/locale'
+import { TustenError } from '../../core/errors'
+import { LOCALE_COOKIE, isValidCookieName, isValidLocale } from '../../core/locale'
 
 /**
  * Функция, возвращающая текущий locale. `undefined` — locale не известна,
@@ -35,6 +35,22 @@ export function setLocaleResolver(fn: LocaleResolver): void {
     resolver = fn
 }
 
+let cookieKey = LOCALE_COOKIE
+
+/**
+ * Задаёт имя cookie для `setLocale`. Вызывается из `initI18n`
+ * (ключ приходит с сервера через `window.__ROOT_I18N__`).
+ *
+ * Невалидное имя игнорируется: сервер валидирует `i18n.key` при загрузке
+ * конфига, но bootstrap-скрипт — это данные страницы, а не доверенный код.
+ *
+ * @param key имя cookie; `undefined` или невалидное значение — дефолт `LOCALE_COOKIE`.
+ */
+export function setLocaleCookieKey(key?: string): void {
+    const value = typeof key === 'string' ? key.trim() : key
+    cookieKey = isValidCookieName(value) ? value : LOCALE_COOKIE
+}
+
 /**
  * Возвращает текущую locale.
  *
@@ -62,6 +78,6 @@ export function setLocale(locale: string): void {
     }
     // Проверку «locale есть в конфиге» здесь не делаем: клиент её не знает.
     // Сервер при чтении cookie обязан отбросить неизвестное значение.
-    document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(locale)}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE}; SameSite=Lax`
+    document.cookie = `${cookieKey}=${encodeURIComponent(locale)}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE}; SameSite=Lax`
     window.location.reload()
 }

@@ -48,21 +48,21 @@ export function View(): JSX.Element {
                 <div className="grid gap-5 md:grid-cols-2">
                     <Card title="userInfo" badge="global">
                         <p className="text-slate-700">
-                            Привет, <strong>{user.getState()?.name ?? 'guest'}</strong>!
+                            Привет, <strong>{user.state?.name ?? 'guest'}</strong>!
                         </p>
                     </Card>
                     <Card title="AboutStats" badge="page">
                         {stats ? (
                             <ul className="space-y-1 text-slate-700">
                                 <li>
-                                    routes: <strong>{stats.getState().routes}</strong>
+                                    routes: <strong>{stats.state.routes}</strong>
                                 </li>
                                 <li>
-                                    slices: <strong>{stats.getState().slices}</strong>
+                                    slices: <strong>{stats.state.slices}</strong>
                                 </li>
                                 <li>
                                     стек:{' '}
-                                    <span className="font-mono text-sm">{stats.getState().frameworks.join(' · ')}</span>
+                                    <span className="font-mono text-sm">{stats.state.frameworks.join(' · ')}</span>
                                 </li>
                             </ul>
                         ) : (

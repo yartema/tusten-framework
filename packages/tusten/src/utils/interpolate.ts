@@ -1,4 +1,4 @@
-import { TustenError } from '../errors'
+import { TustenError } from '../core/errors'
 
 /**
  * Подставляет значения переменных в шаблон вида `{name}`.

@@ -1,4 +1,4 @@
-import { TustenError } from '../errors'
+import { TustenError } from '../core/errors'
 import type { RpcMethodDefinition, RpcObjectDefinition } from '../types'
 
 /** Зарегистрированный RPC-метод (объект + метод + полное имя). */

@@ -9,7 +9,7 @@ import type { UserInfoSlice } from '../User/loaders/userInfo'
  */
 export function View(): JSX.Element {
     const user = useStrictSlice<UserInfoSlice>('userInfo')
-    const info = user.getState()
+    const info = user.state
 
     return (
         <div className="space-y-4">
