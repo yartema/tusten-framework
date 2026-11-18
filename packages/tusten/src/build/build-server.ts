@@ -29,6 +29,9 @@ export async function buildServer(options: BuildServerOptions): Promise<void> {
     await build({
         ...userVite,
         root: projectDir,
+        // SSR-бандл не должен копировать статику: `public/` уже уехал
+        // в `dist/client` на шаге buildClient.
+        publicDir: false,
         configFile: false,
         appType: 'custom',
         plugins: [

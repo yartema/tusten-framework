@@ -19,7 +19,7 @@ export interface RpcHandlerOptions {
 export function createRpcHandler(options: RpcHandlerOptions) {
     const { registry, config } = options
 
-    return async function handler(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    return async function handler(req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
         const requestId = (req.headers['x-request-id'] as string | undefined) ?? randomUUID()
         reply.header('X-Request-Id', requestId)
 
@@ -33,6 +33,9 @@ export function createRpcHandler(options: RpcHandlerOptions) {
         }
 
         const response = await processBody(req.body, registry, requestId, extension)
-        reply.code(200).type('application/json').send(response)
+        // `return` обязателен: при `reply.send()` без возврата цепочка
+        // `@fastify/compress` + Fastify 5 завершает ответ пустым телом
+        // (`content-length: 0`). Все точки фреймворка возвращают результат.
+        return reply.code(200).type('application/json').send(response)
     }
 }

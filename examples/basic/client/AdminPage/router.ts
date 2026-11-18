@@ -10,6 +10,8 @@ export default defineRoute([
         id: 'admin',
         parentId: 'home',
         layout: ['layouts/Main', 'layouts/Admin'],
+        // `permission` — прикладной ключ: фильтрует layout, ядро отдаёт всем.
+        navigation: { title: 'Admin', order: 30, permission: 'write' },
         metaConfig: {
             title: 'Admin Page',
         },

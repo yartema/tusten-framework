@@ -22,6 +22,7 @@ type ConfigOverrides = Partial<Omit<ResolvedTustenConfig, 'client' | 'server'>> 
 function makeConfig(overrides: ConfigOverrides = {}): ResolvedTustenConfig {
     const base: ResolvedTustenConfig = {
         ssr: true,
+        publicDir: 'public',
         client: {
             clientDir: 'client',
             css: [],
@@ -35,6 +36,7 @@ function makeConfig(overrides: ConfigOverrides = {}): ResolvedTustenConfig {
             routes: null,
             plugins: null,
             rpc: { enabled: true, url: '/service', describe: true },
+            compress: null,
         },
         middleware: [],
         vite: {},
@@ -188,6 +190,64 @@ describe('buildRouteTree', () => {
                 slug: ['y'],
             })
             expect(() => build([route])).toThrow(/cannot have both "path" and "slug"/)
+        })
+    })
+
+    describe('валидация: navigation JSON-safety', () => {
+        it('пропускает JSON-safe значения', () => {
+            const route = makeRoute({
+                id: 'home',
+                index: true,
+                navigation: {
+                    title: 'Главная',
+                    order: 10,
+                    visible: true,
+                    empty: null,
+                    tags: ['a', 'b'],
+                    nested: { icon: 'home' },
+                    skipped: undefined,
+                },
+            })
+
+            expect(() => build([route])).not.toThrow()
+        })
+
+        it('бросает на функцию с id маршрута', () => {
+            const route = makeRoute({
+                id: 'weird',
+                navigation: { title: 'x', icon: () => 'home' },
+            })
+
+            expect(() => build([route])).toThrow(/"weird".*navigation\.icon.*"function"/)
+        })
+
+        it('бросает на Date', () => {
+            const route = makeRoute({
+                id: 'dated',
+                navigation: { title: 'x', createdAt: new Date() },
+            })
+
+            expect(() => build([route])).toThrow(/"dated".*navigation\.createdAt.*Date/)
+        })
+
+        it('бросает на классовый инстанс', () => {
+            class Marker {}
+
+            const route = makeRoute({
+                id: 'classy',
+                navigation: { title: 'x', marker: new Marker() },
+            })
+
+            expect(() => build([route])).toThrow(/"classy".*class instance/)
+        })
+
+        it('бросает на цикл', () => {
+            const cyclic: Record<string, unknown> = { title: 'x' }
+            cyclic.self = cyclic
+
+            const route = makeRoute({ id: 'loop', navigation: cyclic })
+
+            expect(() => build([route])).toThrow(/"loop".*circular reference/)
         })
     })
 

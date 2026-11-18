@@ -1,5 +1,6 @@
 import type { MetaConfig } from './meta'
 import type { MiddlewareDef } from './middleware'
+import type { TustenRouteNavigation } from './navigation'
 
 /**
  * Один маршрут, возвращаемый из `router.ts` через `defineRoute([...])`.
@@ -24,15 +25,23 @@ export interface TustenRoute {
     index?: boolean
     /** Конфиг meta для маршрута. SEO */
     metaConfig?: MetaConfig
-    /** Конфигурация контента: шаблон и prefetch-пайплайн. */
+    /**
+     * Конфигурация контента: шаблон и (опционально) prefetch-пайплайн.
+     *
+     * Обязательно только `workspaceConfig.template` — остальное можно не задавать.
+     */
     contentConfig: {
         workspaceConfig: {
-            /** Путь до компонента (`<file>:<export>` или `<file>`). */
+            /** Путь до компонента (`<file>:<export>` или `<file>`). Обязателен. */
             template: string
             /** Статические props, передаваемые в компонент. */
             templateProps?: Record<string, unknown>
         }
-        prefetchConfig: {
+        /**
+         * Префетч данных страницы. Не задан — у страницы нет page-слайсов:
+         * шаблон рендерится на переданных `templateProps` и глобальных слайсах.
+         */
+        prefetchConfig?: {
             /** Путь до модуля с `export default function getConfig(configParams, router)`. */
             configLoader: string
             /** Аргументы, передаваемые в `getConfig`. */
@@ -43,6 +52,15 @@ export interface TustenRoute {
     }
     /** Произвольные пользовательские данные (не SEO). */
     meta?: Record<string, unknown>
+    /**
+     * Данные пункта навигации (opt-in каталог `getNavigation()`).
+     *
+     * Есть объект — маршрут попадает в каталог, нет (`undefined` / `null`) — нет.
+     * Ключи (`title`, `icon`, `order`, права) придумывает приложение; ядро
+     * обогащает пункт только `id`, `href`, `parentId`, `dynamic` и `slug`.
+     * Значения — только JSON-safe.
+     */
+    navigation?: TustenRouteNavigation
     /**
      * Middleware для страницы. Client — `client/middleware/*.ts`,
      * server — `server/middleware/*.ts`. Наследуется по `parentId`.
@@ -102,6 +120,8 @@ export interface TustenClientRoute {
     ssr?: boolean
     /** Пользовательские данные маршрута. */
     meta: Record<string, unknown>
+    /** Данные пункта навигации (opt-in каталог). */
+    navigation?: TustenRouteNavigation
     /** SEO-конфиг маршрута. */
     metaConfig: MetaConfig | null
     /** Конфиг контента: шаблон и prefetch-пайплайн. */

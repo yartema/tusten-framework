@@ -7,6 +7,7 @@ export default defineRoute([
     {
         id: 'about',
         layout: 'layouts/Main',
+        navigation: { title: 'About', order: 10 },
         metaConfig: {
             title: 'About Page',
         },

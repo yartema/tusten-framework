@@ -1,6 +1,8 @@
-import type { FactoryMap, ResolvedTustenConfig, RouteTree } from '../types';
+import path from 'node:path'
+import type { FactoryMap, ResolvedTustenConfig, RouteTree } from '../types'
 import { tustenPlugin } from '../vite/plugin'
 import { resolveCssPaths } from '../utils/css'
+import { precompressAssets } from './precompress'
 
 /** Опции клиентского build. */
 export interface BuildClientOptions {
@@ -26,10 +28,13 @@ export async function buildClient(options: BuildClientOptions): Promise<void> {
     const react = (await import('@vitejs/plugin-react')).default
     const userVite = config.vite ?? {}
     const cssFiles = resolveCssPaths(projectDir, clientDir, config)
+    const publicDir = config.publicDir ? path.resolve(projectDir, config.publicDir) : false
 
     await build({
         ...userVite,
         root: projectDir,
+        // Копируем `public/` в `dist/client`: деплой только `dist/` должен работать.
+        publicDir,
         configFile: false,
         appType: 'custom',
         plugins: [
@@ -54,11 +59,19 @@ export async function buildClient(options: BuildClientOptions): Promise<void> {
             rollupOptions: {
                 input: 'virtual:tusten/client-entry',
                 output: {
-                    entryFileNames: 'client.js',
-                    chunkFileNames: 'chunks/[name]-[hash].js',
+                    // Entry и чанки хэшируются: имя меняется вместе с содержимым,
+                    // поэтому их можно кэшировать на год (`immutable`).
+                    entryFileNames: 'assets/[name]-[hash].js',
+                    chunkFileNames: 'assets/[name]-[hash].js',
                     assetFileNames: 'assets/[name]-[hash][extname]',
                 },
             },
         },
     })
+
+    // Предсжатие после записи бандла: `.br`/`.gz` — часть `dist/client`,
+    // prod-сервер отдаёт их через `preCompressed` без CPU в рантайме.
+    // `emptyOutDir` уже удалил прошлые артефакты, поэтому «старые» хэши
+    // не накапливаются.
+    await precompressAssets(outDir)
 }

@@ -57,7 +57,8 @@ export function buildManifest(scan: ScanResult, _config: ResolvedTustenConfig, c
                       : route.layout
             for (const spec of layouts) add(stripExt(stripExport(spec)), 'layout')
             add(stripExport(route.contentConfig.workspaceConfig.template), 'component')
-            add(stripExport(route.contentConfig.prefetchConfig.configLoader), 'config')
+            const configLoader = route.contentConfig.prefetchConfig?.configLoader
+            if (configLoader) add(stripExport(configLoader), 'config')
         }
     }
 

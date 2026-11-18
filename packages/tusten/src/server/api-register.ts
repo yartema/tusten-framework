@@ -1,9 +1,9 @@
 import path from 'node:path'
-import { createJiti } from 'jiti'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { ServerPluginDef, ServerRoute } from '../types'
 import { TustenError } from '../core/errors'
 import { fileExists } from '../utils/fs'
+import { createProjectJiti } from '../utils/project-jiti'
 
 /** Контекст handler'а API-роута. */
 export interface ApiRouteContext {
@@ -36,10 +36,15 @@ export type ApiMiddlewareHandler = (params: Record<string, unknown>, ctx: ApiMid
  *
  * @param fastify Fastify-инстанс.
  * @param plugins загруженные плагины (в нужном порядке).
+ * @param projectDir корень проекта (для `paths` из tsconfig).
  * @throws {TustenError} если default-экспорт не функция.
  */
-export async function registerServerPlugins(fastify: FastifyInstance, plugins: ServerPluginDef[]): Promise<void> {
-    const jiti = createJiti(import.meta.url, { interopDefault: true })
+export async function registerServerPlugins(
+    fastify: FastifyInstance,
+    plugins: ServerPluginDef[],
+    projectDir: string,
+): Promise<void> {
+    const jiti = createProjectJiti(projectDir)
 
     for (const plugin of plugins) {
         const mod = (await jiti.import(plugin.path)) as Record<string, unknown>
@@ -70,7 +75,7 @@ export async function registerServerRoutes(
     routes: ServerRoute[],
     projectDir: string,
 ): Promise<void> {
-    const jiti = createJiti(import.meta.url, { interopDefault: true })
+    const jiti = createProjectJiti(projectDir)
 
     for (const route of routes) {
         fastify.route({

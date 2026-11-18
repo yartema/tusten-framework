@@ -9,6 +9,7 @@ import type { ResolvedTustenConfig } from '../../../../packages/tusten/src/types
 function makeConfig(options: { root?: string | null; notFound?: string | null } = {}): ResolvedTustenConfig {
     return {
         ssr: true,
+        publicDir: 'public',
         client: {
             clientDir: 'client',
             css: [],
@@ -22,6 +23,7 @@ function makeConfig(options: { root?: string | null; notFound?: string | null } 
             routes: null,
             plugins: null,
             rpc: { enabled: true, url: '/service', describe: true },
+            compress: null,
         },
         middleware: [],
         vite: {},

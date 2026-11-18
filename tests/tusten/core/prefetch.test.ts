@@ -96,6 +96,22 @@ describe('runGlobalPrefetch', () => {
         expect(states.size).toBe(0)
     })
 
+    it('без prefetchConfig — пустой states', async () => {
+        const reg = makeRegistry()
+        const route: TustenRoute = {
+            id: 'static',
+            contentConfig: { workspaceConfig: { template: 'Static/view:View' } },
+        }
+        const states = await runGlobalPrefetch({
+            route,
+            globalRegistry: { userInfo: { dataFactoryName: 'g:u' } },
+            loadModule: makeLoadModule({}),
+            registry: reg as never,
+            router: makeRouter(),
+        })
+        expect(states.size).toBe(0)
+    })
+
     it('загружает один global loader', async () => {
         const reg = makeRegistry()
         const globalRegistry: FactoryMap = {
@@ -255,6 +271,41 @@ describe('runPagePrefetch', () => {
         )
         expect([...states.states.keys()].sort()).toEqual(['UserList', 'userInfo'])
         expect([...states.slices.keys()].sort()).toEqual(['UserList', 'userInfo'])
+    })
+
+    it('без prefetchConfig — только глобальные слайсы, configLoader не грузится', async () => {
+        const reg = makeRegistry()
+        const route: TustenRoute = {
+            id: 'static',
+            contentConfig: {
+                workspaceConfig: { template: 'Static/view:View', templateProps: { text: 'hi' } },
+            },
+        }
+        const loadModule = async (spec: string): Promise<unknown> => {
+            throw new Error(`unexpected module load: ${spec}`)
+        }
+        const result = await runPagePrefetch(
+            {
+                route,
+                globalRegistry: {
+                    userInfo: { dataFactoryName: 'g:u', dataFactoryArguments: { locale: 'ru' } },
+                },
+                loadModule,
+                registry: reg as never,
+                router: makeRouter(),
+            },
+            new Map([['userInfo', { global: true }]]),
+        )
+
+        expect([...result.states.keys()]).toEqual(['userInfo'])
+        expect(result.slices.get('userInfo')).toEqual({
+            dataFactoryName: 'g:u',
+            state: { global: true },
+            config: { locale: 'ru' },
+            scope: 'global',
+        })
+        // page-фабрик нет — реестр не пополнялся.
+        expect(reg.size()).toBe(0)
     })
 
     it('config (dataFactoryArguments) попадает в slices — для гидратации на клиенте', async () => {

@@ -31,6 +31,9 @@ export { TustenError } from './core/errors'
 export type {
     TustenConfig,
     ResolvedTustenConfig,
+    TustenCompressConfig,
+    TustenCompressEncoding,
+    ResolvedCompressOptions,
     TustenRoute,
     TustenRouter,
     FactoryDef,
@@ -48,15 +51,8 @@ export type {
     ServerPluginsOptions,
     TustenClientRouter,
     TustenClientRoute,
-    RpcOptions,
-    ResolvedRpcOptions,
-    RpcContext,
-    RpcObjectDefinition,
-    RpcMethodDefinition,
-    RpcParamsSchema,
-    AuthRequirement,
-    RpcExecutor,
-    StandardSchemaV1,
+    TustenRouteNavigation,
+    TustenNavigationItem,
     ServiceOptions,
     CrudOp,
     IBinding,
@@ -68,11 +64,11 @@ export { Service } from './client/rpc/Service'
 // Prefetch (изоморфный).
 export { runGlobalPrefetch, runPagePrefetch, runPrefetch } from './core/prefetch'
 export type { PrefetchContext, PrefetchRegistry, PrefetchResult, PrefetchSliceInfo } from './core/prefetch'
-export { RootErrorBoundary, RootLoading, RootNotFound } from './client'
-export type { RootErrorBoundaryProps } from './client'
-export { devalueParse, devalueStringify } from './client'
 export { resolveMeta } from './core/meta-resolver'
-export { toClientRoute, pickClientRoute, collectParentIds } from './core/client-route'
+export { toClientRoute, pickClientRoute, collectParentIds, buildClientRoutes } from './core/client-route'
 export type { ClientRouteContext } from './core/client-route'
+
+// Каталог навигации (client-safe).
+export { buildNavigation, getNavigation, setNavigationCatalog } from './core/navigation'
 export type { TustenRootConfig, ResolvedRootConfig, TustenRootElementConfig, ResolvedRootElement } from './types'
 export type { MetaTag, MetaResult, MetaConfig, PageMeta } from './types'

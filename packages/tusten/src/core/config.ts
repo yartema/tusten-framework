@@ -1,8 +1,10 @@
 import path from 'node:path'
-import { createJiti } from 'jiti'
 import type {
     TustenConfig,
     ResolvedTustenConfig,
+    TustenCompressConfig,
+    TustenCompressEncoding,
+    ResolvedCompressOptions,
     TustenI18nConfig,
     TustenRootConfig,
     TustenRootElementConfig,
@@ -11,7 +13,79 @@ import type {
 } from '../types'
 import { TustenError } from './errors'
 import { fileExists } from '../utils/fs'
+import { createProjectJiti } from '../utils/project-jiti'
 import { isValidCookieName, isValidLocale, LOCALE_COOKIE } from './locale'
+
+/** Дефолтный каталог статики (рядом с `client` и `server`). */
+export const DEFAULT_PUBLIC_DIR = 'public'
+
+/** Дефолтный порог сжатия: мелкие ответы дешевле отдать как есть. */
+export const DEFAULT_COMPRESS_THRESHOLD = 1024
+
+/** Кодировки, которые поддерживает сервер по умолчанию (по приоритету). */
+export const DEFAULT_COMPRESS_ENCODINGS: TustenCompressEncoding[] = ['br', 'gzip']
+
+/**
+ * Нормализует `publicDir`.
+ *
+ * `undefined` — дефолт `public`; `false` — каталог отключён. Путь трактуется
+ * относительно корня проекта (как и остальные каталоги в конфиге).
+ *
+ * @param raw значение `publicDir`.
+ * @returns путь без ведущего `./` или `null`.
+ * @throws {TustenError} если задана пустая строка или не строка/`false`.
+ */
+export function normalizePublicDir(raw: unknown): string | null {
+    if (raw === false) return null
+    if (raw === undefined || raw === null) return DEFAULT_PUBLIC_DIR
+    if (typeof raw !== 'string') {
+        throw new TustenError(`publicDir must be a string or false, got ${typeof raw}`)
+    }
+    const value = raw.trim().replace(/^\.\//, '')
+    if (!value) {
+        throw new TustenError('publicDir must be a non-empty path or false')
+    }
+    return value
+}
+
+/**
+ * Нормализует секцию `server.compress`.
+ *
+ * Отсутствие секции — сжатие включено с дефолтами (фича opt-out).
+ *
+ * @param raw значение `server.compress`.
+ * @returns нормализованные настройки или `null` (сжатие выключено).
+ * @throws {TustenError} при некорректном пороге или кодировках.
+ */
+export function normalizeCompress(raw: false | TustenCompressConfig | undefined): ResolvedCompressOptions | null {
+    if (raw === false) return null
+    if (raw !== undefined && (typeof raw !== 'object' || raw === null || Array.isArray(raw))) {
+        throw new TustenError('server.compress must be false or an object')
+    }
+
+    const threshold = raw?.threshold ?? DEFAULT_COMPRESS_THRESHOLD
+    if (typeof threshold !== 'number' || !Number.isFinite(threshold) || threshold < 0) {
+        throw new TustenError(`server.compress.threshold must be a non-negative number, got ${String(threshold)}`)
+    }
+
+    const encodings = raw?.encodings ?? DEFAULT_COMPRESS_ENCODINGS
+    if (!Array.isArray(encodings) || encodings.length === 0) {
+        throw new TustenError('server.compress.encodings must be a non-empty array')
+    }
+    for (const encoding of encodings) {
+        if (encoding !== 'br' && encoding !== 'gzip') {
+            throw new TustenError(`server.compress.encodings contains unsupported encoding "${String(encoding)}"`)
+        }
+    }
+
+    const ssr = raw?.ssr ?? true
+    if (typeof ssr !== 'boolean') {
+        throw new TustenError(`server.compress.ssr must be a boolean, got ${typeof ssr}`)
+    }
+
+    // Дубликаты не влияют на выбор кодировки, но создают лишние ветки в negotiate.
+    return { threshold, encodings: [...new Set(encodings)], ssr }
+}
 
 /**
  * Нормализует имя cookie с выбранным языком.
@@ -180,21 +254,25 @@ export async function loadConfig(projectDir: string): Promise<ResolvedTustenConf
     }
 
     // jiti грузит TS/ESM и возвращает default export.
-    const jiti = createJiti(import.meta.url, {
-        interopDefault: true,
-        jsx: true,
-    })
+    const jiti = createProjectJiti(projectDir, { jsx: true })
 
     // jiti с `export default null` может упасть внутри (Cannot read 'then').
     // Ловим и превращаем в понятную ошибку.
-    let mod: TustenConfig | undefined
+    let moduleNs: Record<string, unknown> | null | undefined
     try {
-        const moduleNs = (await jiti.import(target)) as { default?: TustenConfig } | null | undefined
-        mod = moduleNs?.default
+        moduleNs = (await jiti.import(target)) as Record<string, unknown> | null | undefined
     } catch {
-        mod = undefined
+        moduleNs = undefined
     }
 
+    // `interopDefault: true` на модуле без единого экспорта возвращает
+    // `{ default: {} }` — без этой проверки конфиг молча игнорируется
+    // (пропадают css, root, i18n и vite-плагины, например Tailwind).
+    if (!moduleNs || Object.keys(moduleNs).length === 0) {
+        throw new TustenError(`Config at ${target} must export a default object`)
+    }
+
+    const mod = moduleNs.default as TustenConfig | undefined
     if (!mod || typeof mod !== 'object' || Array.isArray(mod)) {
         throw new TustenError(`Config at ${target} must export a default object`)
     }
@@ -216,6 +294,7 @@ export async function loadConfig(projectDir: string): Promise<ResolvedTustenConf
 
     return {
         ssr: mod.ssr ?? true,
+        publicDir: normalizePublicDir(mod.publicDir),
         client: {
             clientDir: mod.client?.clientDir ?? 'client',
             css: mod.client?.css ?? [],
@@ -246,6 +325,7 @@ export async function loadConfig(projectDir: string): Promise<ResolvedTustenConf
                           describe: rpcConfig?.describe ?? true,
                           extendContext: rpcConfig?.extendContext,
                       },
+            compress: normalizeCompress(mod.server?.compress),
         },
         middleware: mod.middleware ?? [],
         vite: mod.vite ?? {},

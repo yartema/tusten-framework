@@ -1,8 +1,8 @@
 import path from 'node:path'
-import { createJiti } from 'jiti'
 import type { Jiti } from 'jiti'
 import { TustenError } from './errors'
 import { interpolate } from '../utils/interpolate'
+import { createProjectJiti } from '../utils/project-jiti'
 
 /**
  * Внутренний резолвер модулей. Инициализируется один раз
@@ -16,13 +16,13 @@ let internalResolver: ((spec: string, vars?: Record<string, unknown>) => Promise
  *
  * @param options опции инициализации.
  * @param options.clientDir абсолютный путь до клиентского каталога.
+ * @param options.projectDir корень проекта (для `paths` из tsconfig); по умолчанию — родитель `clientDir`.
  * @param options.jiti опциональный экземпляр jiti (для тестов/инъекции).
  */
-export function __initResolver(options: { clientDir: string; jiti?: Jiti }): void {
+export function __initResolver(options: { clientDir: string; projectDir?: string; jiti?: Jiti }): void {
     const jiti =
         options.jiti ??
-        createJiti(import.meta.url, {
-            interopDefault: true,
+        createProjectJiti(options.projectDir ?? path.dirname(options.clientDir), {
             jsx: true,
         })
 

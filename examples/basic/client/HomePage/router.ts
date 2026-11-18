@@ -9,6 +9,7 @@ export default defineRoute([
         id: 'home',
         index: true,
         layout: 'layouts/Main',
+        navigation: { title: 'Home', order: 0 },
         metaConfig: {
             title: 'Главная',
         },

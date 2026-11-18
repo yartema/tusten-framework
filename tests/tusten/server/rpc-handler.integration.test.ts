@@ -1,5 +1,7 @@
+import { gunzipSync } from 'node:zlib'
 import { describe, expect, it, vi } from 'vitest'
 import Fastify, { type FastifyInstance } from 'fastify'
+import compress from '@fastify/compress'
 import { createRpcHandler } from '../../../packages/tusten/src/server/rpc-handler'
 import { RpcRegistry } from '../../../packages/tusten/src/server/rpc-registry'
 import type { ResolvedTustenConfig, RpcMethodDefinition } from '../../../packages/tusten/src/types'
@@ -21,6 +23,7 @@ type ConfigOverrides = Partial<Omit<ResolvedTustenConfig, 'client' | 'server'>> 
 function makeConfig(overrides: ConfigOverrides = {}): ResolvedTustenConfig {
     const base: ResolvedTustenConfig = {
         ssr: true,
+        publicDir: 'public',
         client: {
             clientDir: 'client',
             css: [],
@@ -34,6 +37,7 @@ function makeConfig(overrides: ConfigOverrides = {}): ResolvedTustenConfig {
             routes: null,
             plugins: null,
             rpc: { enabled: true, url: '/service', describe: true },
+            compress: null,
         },
         middleware: [],
         vite: {},
@@ -81,6 +85,33 @@ describe('POST /service — интеграция (fastify.inject)', () => {
         expect(res.statusCode).toBe(200)
         expect(res.headers['content-type']).toMatch(/application\/json/)
         expect(res.json()).toEqual({ jsonrpc: '2.0', result: 'pong', id: 1 })
+    })
+
+    it('@fastify/compress: тело не теряется (регрессия reply.send без return)', async () => {
+        const config = makeConfig()
+        const registry = new RpcRegistry()
+        registry.add({ name: 'Users', methods: { Ping: { handler: async () => 'pong' } } })
+
+        const app = Fastify({ logger: false })
+        await app.register(compress, { global: true, encodings: ['gzip'], threshold: 0 })
+        app.post(config.server.rpc.url, createRpcHandler({ registry, config }))
+
+        const res = await app.inject({
+            method: 'POST',
+            url: '/service',
+            headers: { 'accept-encoding': 'gzip' },
+            payload: { jsonrpc: '2.0', method: 'Users.Ping', id: 1 },
+        })
+
+        expect(res.statusCode).toBe(200)
+        expect(res.headers['content-encoding']).toBe('gzip')
+        // Именно пустое тело было симптомом: заголовок есть, payload — 0 байт.
+        expect(res.rawPayload.length).toBeGreaterThan(0)
+        expect(JSON.parse(gunzipSync(res.rawPayload).toString())).toEqual({
+            jsonrpc: '2.0',
+            result: 'pong',
+            id: 1,
+        })
     })
 
     it('batch — массив ответов', async () => {

@@ -55,6 +55,24 @@ export interface ClientManifestIndex {
 }
 
 /**
+ * Ищет entry-чанк клиента в manifest.
+ *
+ * Имя entry содержит хэш (`assets/client-entry-<hash>.js`), поэтому URL
+ * `<script type="module">` берётся из manifest, а не собирается константой.
+ *
+ * @param manifest Vite client manifest.
+ * @returns имя файла относительно `outDir` (без ведущего `/`) или `null`.
+ */
+export function findClientEntryFile(manifest: Record<string, ClientManifestEntry>): string | null {
+    for (const entry of Object.values(manifest)) {
+        if (entry.isEntry && typeof entry.file === 'string' && entry.file.length > 0) {
+            return entry.file
+        }
+    }
+    return null
+}
+
+/**
  * Строит индекс manifest.
  *
  * @param manifest Vite client manifest.

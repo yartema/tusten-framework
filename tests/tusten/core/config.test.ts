@@ -162,6 +162,16 @@ describe('loadConfig', () => {
         await expect(loadConfig(dir)).rejects.toThrow(/must export a default object/)
     })
 
+    it('нет export default → TustenError (а не молчаливый дефолт)', async () => {
+        const dir = await makeProjectDir('no-default-config')
+        // Вызов без экспорта: модуль исполняется без ошибок, но namespace пустой.
+        await writeFile(
+            join(dir, 'tusten.config.ts'),
+            `const config = { client: { css: ['Theme/base.css'] } }\nvoid config\n`,
+        )
+        await expect(loadConfig(dir)).rejects.toThrow(/must export a default object/)
+    })
+
     it('компоненты error/loading/notFound', async () => {
         const dir = await makeProjectDir('components')
         await writeFile(
@@ -375,5 +385,81 @@ describe('loadConfig', () => {
             `export default { i18n: { defaultLocale: '../x', locales: ['../x'] } }\n`,
         )
         await expect(loadConfig(dir)).rejects.toThrow(/invalid locale "..\/x"/)
+    })
+
+    it('publicDir — по умолчанию public', async () => {
+        const dir = await makeProjectDir('public-default')
+        await writeFile(join(dir, 'tusten.config.ts'), `export default {}\n`)
+        expect((await loadConfig(dir)).publicDir).toBe('public')
+    })
+
+    it('publicDir — false отключает каталог, строка нормализуется', async () => {
+        const off = await makeProjectDir('public-off')
+        await writeFile(join(off, 'tusten.config.ts'), `export default { publicDir: false }\n`)
+        expect((await loadConfig(off)).publicDir).toBeNull()
+
+        const custom = await makeProjectDir('public-custom')
+        await writeFile(join(custom, 'tusten.config.ts'), `export default { publicDir: '  ./static  ' }\n`)
+        expect((await loadConfig(custom)).publicDir).toBe('static')
+    })
+
+    it('publicDir — пустая строка и не строка → TustenError', async () => {
+        const empty = await makeProjectDir('public-empty')
+        await writeFile(join(empty, 'tusten.config.ts'), `export default { publicDir: '' }\n`)
+        await expect(loadConfig(empty)).rejects.toThrow(/publicDir must be a non-empty path/)
+
+        const badType = await makeProjectDir('public-bad-type')
+        await writeFile(join(badType, 'tusten.config.ts'), `export default { publicDir: 42 }\n`)
+        await expect(loadConfig(badType)).rejects.toThrow(/publicDir must be a string or false/)
+    })
+
+    it('server.compress — по умолчанию включён (br + gzip)', async () => {
+        const dir = await makeProjectDir('compress-default')
+        await writeFile(join(dir, 'tusten.config.ts'), `export default {}\n`)
+        expect((await loadConfig(dir)).server.compress).toEqual({
+            threshold: 1024,
+            encodings: ['br', 'gzip'],
+            ssr: true,
+        })
+    })
+
+    it('server.compress — false выключает, объект нормализуется', async () => {
+        const off = await makeProjectDir('compress-off')
+        await writeFile(join(off, 'tusten.config.ts'), `export default { server: { compress: false } }\n`)
+        expect((await loadConfig(off)).server.compress).toBeNull()
+
+        const custom = await makeProjectDir('compress-custom')
+        await writeFile(
+            join(custom, 'tusten.config.ts'),
+            `export default { server: { compress: { threshold: 0, encodings: ['gzip', 'gzip'], ssr: false } } }\n`,
+        )
+        expect((await loadConfig(custom)).server.compress).toEqual({
+            threshold: 0,
+            encodings: ['gzip'],
+            ssr: false,
+        })
+    })
+
+    it('server.compress — некорректные значения → TustenError', async () => {
+        const badThreshold = await makeProjectDir('compress-bad-threshold')
+        await writeFile(
+            join(badThreshold, 'tusten.config.ts'),
+            `export default { server: { compress: { threshold: -1 } } }\n`,
+        )
+        await expect(loadConfig(badThreshold)).rejects.toThrow(/threshold must be a non-negative number/)
+
+        const badEncoding = await makeProjectDir('compress-bad-encoding')
+        await writeFile(
+            join(badEncoding, 'tusten.config.ts'),
+            `export default { server: { compress: { encodings: ['zstd'] } } }\n`,
+        )
+        await expect(loadConfig(badEncoding)).rejects.toThrow(/unsupported encoding "zstd"/)
+
+        const emptyEncodings = await makeProjectDir('compress-empty-encodings')
+        await writeFile(
+            join(emptyEncodings, 'tusten.config.ts'),
+            `export default { server: { compress: { encodings: [] } } }\n`,
+        )
+        await expect(loadConfig(emptyEncodings)).rejects.toThrow(/encodings must be a non-empty array/)
     })
 })

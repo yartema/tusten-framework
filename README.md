@@ -12,14 +12,15 @@
 
 **tusten** — мета-фреймворк уровня Nuxt/Next, который собирается из трёх проверенных инструментов: React, Fastify, Vite. Устанавливается как зависимость, сканирует `client/`, строит карту маршрутов, поднимает сервер с SSR/SPA и JSON-RPC 2.0 — без магии, без RSC, без Server Actions.
 
-> ⚠️ **Beta (`@tusten/core@0.2.0-beta.6`).**
+> ⚠️ **Beta (`@tusten/core@0.2.0-beta.7`).**
 >
-> - Установка: `pnpm add @tusten/core@beta`
+> - Новый проект: `npm create tusten-app@latest my-app` (или `pnpm create tusten-app my-app`)
+> - Установка в существующий проект: `pnpm add @tusten/core@beta`
 > - Импорт: `import { defineConfig } from '@tusten/core'`
 > - Bin: `tusten dev`, `tusten build`, `tusten start`, `tusten inspect`
 > - **API стабилизируется**, breaking changes — только в минорных версиях.
 > - **Не для production** без тестов и ревью.
-> - Что нового в beta.6 — настраиваемое имя cookie для i18n (`i18n.key`) и исправление чтения cookie на SSR: [`packages/tusten/CHANGELOG.md`](packages/tusten/CHANGELOG.md).
+> - Что нового в beta.7 — `create-tusten-app`, каталог навигации (`getNavigation`), сжатие ответов и предсжатие статики, `publicDir`, хэшированные ассеты, `startTransition` + `pending`, алиасы из `tsconfig.json` и необязательный `prefetchConfig`: [`packages/tusten/CHANGELOG.md`](https://github.com/yartema/tusten-framework/blob/main/packages/tusten/CHANGELOG.md).
 > - Следите за [Releases](https://github.com/yartema/tusten-framework/releases).
 
 ---
@@ -42,11 +43,21 @@
 - **Client-safe разделение** — три runtime-точки входа: `@tusten/core` (pure TS), `@tusten/core/server` (Node-only), `@tusten/core/client` (React), плюс types-only `@tusten/core/i18n` для `i18n!*`. `@tusten/core` не тянет jiti/fastify/vite.
 - **Error boundaries / Loading / Not Found** — через `client.components`, с дефолтами `RootErrorBoundary` / `RootLoading` / `RootNotFound`.
 - **Prod build** — `tusten build` → `dist/client` + `dist/server`. `tusten start` — Fastify + статика.
-- **549 unit-тестов** (Vitest, 40 файлов, `tests/tusten`) — ядро покрыто на 90%+, CI на GitHub Actions.
+- **663 unit-теста** (Vitest, 49 файлов, `tests/tusten`) — ядро покрыто на 90%+, CI на GitHub Actions.
 
 ---
 
 ## 🚀 Быстрый старт
+
+### Из шаблона
+
+```bash
+pnpm create tusten-app my-app
+cd my-app
+pnpm dev
+```
+
+Шаблон уже включает SSR, **включённый JSON-RPC** (`server/app/App.meta.ts` + вызов через `Service` в `client/Page/Factories/appInfo.ts`), статику `public/` и сжатие ответов.
 
 ### Из npm
 
@@ -93,7 +104,7 @@ pnpm dev:basic
 ```bash
 pnpm lint                                        # ESLint
 pnpm typecheck                                   # tsc --noEmit
-pnpm test                                        # Vitest (549 тестов, 40 файлов)
+pnpm test                                        # Vitest (663 теста, 49 файлов)
 pnpm inspect:basic                               # dump маршрутов, RPC-методов и i18n-словарей
 pnpm build:basic                                 # prod-сборка
 pnpm start:basic                                 # prod-сервер
@@ -120,7 +131,9 @@ export default defineRoute([
             meta: [{ name: 'description', content: 'Home page' }],
         },
         contentConfig: {
+            // обязателен только template
             workspaceConfig: { template: 'HomePage/view:View' },
+            // необязательно: без prefetchConfig у страницы нет page-слайсов
             prefetchConfig: {
                 configLoader: 'HomePage/Factories/Root',
                 dependencies: ['userInfo'], // глобальный loader
@@ -129,6 +142,12 @@ export default defineRoute([
     },
 ])
 ```
+
+Обязательные поля маршрута — только `id` и `contentConfig.workspaceConfig.template`.
+`layout`, `index`, `metaConfig`, `middleware`, `path` / `slug`, `ssr`, `meta` и
+`contentConfig.prefetchConfig` можно не задавать. Глобальные слайсы
+(`*.loader.ts`) тоже опциональны: страница без загрузчиков собирается и
+рендерится, `globalRegistry` при этом пустой.
 
 **Динамический маршрут с meta из RPC:**
 
@@ -295,6 +314,10 @@ export const UserListLoader: FactoryImplementation<UserListState> = {
 }
 ```
 
+Подробные руководства: [`docs/Factories.md`](https://github.com/yartema/tusten-framework/blob/main/docs/Factories.md) — фабрики,
+аргументы, зависимости и ошибки; [`docs/Slices.md`](https://github.com/yartema/tusten-framework/blob/main/docs/Slices.md) — слайсы,
+`setState`, хуки, жизненный цикл и сериализация.
+
 ### Компонент
 
 ```tsx
@@ -332,6 +355,7 @@ nav.pathname // текущий путь
 nav.params // динамические сегменты
 nav.query // query-параметры
 nav.route // конфиг маршрута (TustenClientRoute | null)
+nav.pending // true, пока идёт переход (middleware + prefetch + commit)
 
 await nav.push('/about')
 await nav.replace('/about')
@@ -352,7 +376,7 @@ await nav.reload({ remount: true }) // перемонтировать стран
 deprecated-обёртки; `getRouter()` — для кода вне React.
 
 Подробное руководство по навигации, `<Link>`, prefetch и `reload` —
-[`docs/Router.md`](docs/Router.md).
+[`docs/Router.md`](https://github.com/yartema/tusten-framework/blob/main/docs/Router.md).
 
 | Опция        | По умолчанию | Что делает                                                             |
 | ------------ | ------------ | ---------------------------------------------------------------------- |
@@ -365,6 +389,69 @@ deprecated-обёртки; `getRouter()` — для кода вне React.
 остаётся на текущей странице, ошибка уходит в dev-оверлей/лог, а Promise
 реджектится. Если во время reload началась навигация — побеждает последняя
 операция. До инициализации client-entry `reload()` делает полную перезагрузку.
+
+### Индикатор загрузки
+
+Новый экран рендерится в `startTransition`: пока грузятся данные и чанки,
+пользователь остаётся на старой странице, а фреймворк сообщает о переходе через
+`useNavigation().pending` или `useNavigationPending()`. Слайсы старой страницы
+уничтожаются только после commit нового дерева — до этого момента она полностью
+рабочая.
+
+Готовая полоска сверху — `<NavigationProgress />`. Рендерится в root controller,
+при SSR отдаётся невидимой (hydration не расходится), не перехватывает клики:
+
+```tsx
+import { NavigationProgress, type RootControllerProps } from '@tusten/core/client'
+
+export function Root({ children }: RootControllerProps) {
+    return (
+        <div>
+            <NavigationProgress />
+            {children}
+        </div>
+    )
+}
+```
+
+Пропсы: `color` (по умолчанию `#2563eb`), `height` (2 px), `delay` (мс — не
+показывать для мгновенных переходов), `zIndex`.
+
+### Каталог навигации
+
+Пункты меню собираются из маршрутов: задайте `navigation` — маршрут попадёт в
+`getNavigation()`. Ключи (`title`, `icon`, `order`, права) — прикладные.
+
+```ts
+// client/AboutPage/router.ts
+export default defineRoute([
+    {
+        id: 'about',
+        navigation: { title: 'О нас', order: 20 },
+        // ...
+    },
+])
+```
+
+```tsx
+import { getNavigation } from '@tusten/core'
+
+const items = getNavigation() // [{ id: 'about', href: '/about', dynamic: false, title: 'О нас', order: 20 }]
+```
+
+- `getNavigation()` («какие пункты есть») — не `useNavigation()` («где я сейчас»).
+  Работает и на клиенте, и в серверном JSON-RPC-обработчике: можно вернуть
+  каталог (например, уже отфильтрованный по правам) с сервера через обычный
+  `Service.call`.
+- Статический маршрут получает `href` из пути; динамическому (`/blog/:id`) нужен
+  явный `navigation.href`, иначе он отдаётся с `dynamic: true` без ссылки.
+- Каталог возвращает все пункты: фильтрация по правам, сортировка и группировка
+  остаются в приложении. Считайте фильтр в рендере, чтобы он обновился после
+  логина.
+- `navigation` должен быть JSON-safe (функции/`Date`/классы — ошибка сборки).
+  Для чистых тестов и `sitemap.xml` есть `buildNavigation(routes)`.
+
+Подробно — [`docs/Router.md`](https://github.com/yartema/tusten-framework/blob/main/docs/Router.md#каталог-навигации-getnavigation).
 
 ### JSON-RPC-объект
 
@@ -435,6 +522,51 @@ export default defineConfig({
 Все пути в `client.*` (`components`, `root.component`, `root.container`, `css`) — относительно `clientDir`, без `./`: `Page/Controller:Root`, `layouts/Main`. Старый вид с `./` поддерживается и нормализуется при загрузке конфига.
 
 `client.layouts` и `client.rootElement` **удалены**: если они есть в конфиге, загрузчик выведет предупреждение и проигнорирует их. Layout задаётся в `defineRoute`, контейнер — в `client.root.container`.
+
+Полное описание всех полей, значений по умолчанию и ограничений —
+[`docs/Config.md`](https://github.com/yartema/tusten-framework/blob/main/docs/Config.md).
+
+### Статика и сжатие
+
+```ts
+export default defineConfig({
+    // Каталог статики рядом с client/ и server/. false — отключить.
+    publicDir: 'public',
+    server: {
+        // Сжатие включено по умолчанию; false — если сжимает прокси/CDN.
+        compress: { threshold: 1024, encodings: ['br', 'gzip'], ssr: true },
+    },
+})
+```
+
+- **`public/`** отдаётся с корня сайта. В dev каталог обслуживает Vite, при сборке он копируется в `dist/client`, а prod-сервер раздаёт его ещё и из исходного пути — файл, добавленный без пересборки, тоже будет доступен. Entry-чанк и остальные ассеты хэшируются (`assets/<name>-<hash>.js`, `assets/<name>-<hash>.<ext>`) и получают `Cache-Control: public, max-age=31536000, immutable`; файлы из `public/` — `no-cache` (ревалидация после деплоя).
+- **Предсжатие статики.** Сборка кладёт рядом с текстовыми файлами (`js`, `css`, `html`, `json`, `svg`, `xml`, `txt`, `map` — крупнее 1 КБ) готовые `.br` (brotli quality 11) и `.gz` (gzip level 9). Prod-сервер включает `@fastify/static.preCompressed: true` и отдаёт их по `Accept-Encoding` без сжатия на каждый запрос; `Vary: Accept-Encoding` выставляет сам плагин. Dev-режим не предсжимает — HMR важнее.
+- **`server.compress`** по умолчанию включён: `@fastify/compress` сжимает `POST /service`, API-роуты и статику, а SSR-документ и готовые HTML-тела (SPA-shell, 404, страницы ошибок) — встроенный zlib-пайплайн, потому что SSR пишет в `reply.raw` в обход хуков Fastify. Кодировка выбирается по `Accept-Encoding`, `Vary: Accept-Encoding` добавляется к существующему `Vary` (i18n). `ssr: false` оставляет сжатие API/статики, но отключает сжатие SSR-стрима; `server.compress: false` выключает всё. Предсжатые `.br`/`.gz` и `@fastify/compress` не конфликтуют: уже сжатый ответ плагин не трогает.
+
+### Алиасы путей
+
+Источник правды — `compilerOptions.paths` в `tsconfig.json`:
+
+```json
+{
+    "compilerOptions": {
+        "paths": {
+            "@/*": ["./client/*"],
+            "@server/*": ["./server/*"]
+        }
+    }
+}
+```
+
+Чтобы Vite их видел, включите `vite.resolve.tsconfigPaths`:
+
+```ts
+export default defineConfig({
+    vite: { resolve: { tsconfigPaths: true } },
+})
+```
+
+Серверный код (`server.routes`, `server.plugins`, middleware, RPC-объекты, `configLoader` и `router.ts`) фреймворк грузит через jiti — он читает те же `paths`, поэтому `@server/…` работает и в dev, и в prod-сборке. `tsc`, редактор, Vite и Node резолвят алиасы одинаково.
 
 ### i18n
 
@@ -611,14 +743,14 @@ export default defineConfig({
 - **`loadData` изоморфный** — работает на сервере и клиенте, только `fetch('/api/...')` или `Service.call(...)`. Никаких прямых обращений к БД, никаких Server Actions.
 - **JSON-RPC для чтения и мутаций** — единый протокол, типизация через Standard Schema, `ctx.call` для композиции методов.
 - **`metaConfig` + `resolveMeta`** — meta резолвится **параллельно** с prefetch (`Promise.all`), поэтому SSR latency = max(prefetch, meta), не сумма.
-- **SPA-переход атомарный** — page-слайсы новой страницы прогреваются в отдельном `SliceRegistry` и подменяют старые (`adoptPage`) только после успешных `loadData` + загрузки шаблона. Ошибка → остаёмся на текущей странице с живыми слайсами; global-слайсы переживают переход.
+- **SPA-переход атомарный** — page-слайсы новой страницы прогреваются в отдельном `SliceRegistry` и подменяют старые (`adoptPage`) только после успешных `loadData` + загрузки шаблона. Новое дерево рендерится в `startTransition`, а слайсы старой страницы уничтожаются после commit — до этого она остаётся рабочей. Ошибка → остаёмся на текущей странице с живыми слайсами; global-слайсы переживают переход.
 - **i18n на SSR** — locale определяется по cookie / `Accept-Language`, словари реально использованных модулей встраиваются в HTML до `hydrateRoot`; `Vary: Accept-Language, Cookie` не даёт кэшу смешать языки.
 - **Безопасные SSR-ответы** — `Cache-Control: no-store` на HTML, JSON-404 и редиректах; `Vary` учитывает `Accept` для контент-негоциации.
-- **Быстрая доставка** — `modulepreload` для `client.js`, чанка маршрута и слайсов; независимые фабрики, layout и Error-компонент грузятся параллельно.
+- **Быстрая доставка** — `modulepreload` для entry-чанка, чанка маршрута и слайсов; независимые фабрики, layout и Error-компонент грузятся параллельно; HTTP-ответы сжимаются по умолчанию (brotli/gzip), хэшированные ассеты кэшируются на год, статика ещё и предсжата на сборке.
 - **`ctx.stomp.message(key, payload)`** — real-time push (в разработке).
 - **Три реестра middleware** — не смешиваются, каждый со своим контекстом.
 - **`@tusten/core` / `@tusten/core/server` / `@tusten/core/client`** — client-safe разделение, `@tusten/core` не тянет Node.
-- **497 unit-тестов** (Vitest, 32 файла) — ядро покрыто на 90%+.
+- **663 unit-теста** (Vitest, 49 файлов) — ядро покрыто на 90%+.
 
 ---
 
@@ -648,7 +780,7 @@ tusten-framework/
 │       └── tusten.config.ts
 ```
 
-**Документация фреймворка** — [`README.md`](README.md) (этот файл). Там всё: API, схемы, подводные камни, roadmap.
+**Документация фреймворка** — [`README.md`](https://github.com/yartema/tusten-framework/blob/main/README.md) (этот файл). Там всё: API, схемы, подводные камни, roadmap.
 
 ---
 
@@ -663,6 +795,7 @@ tusten-framework/
 - **Phase 5** — 425 unit-тестов (Vitest), GitHub Actions CI (`format:check` + `lint` + `typecheck` + `test`), Prettier + ESLint, публикация `@tusten/core@0.2.0-beta.4` в npm
 - **Phase 6** — SEO / meta: `metaConfig` (статика), `readMethod` (JSON-RPC), `getMetaCallback` (функция), `usePageMeta` (client), `microdata` (JSON-LD), `resolveMeta` (SSR, параллельно с prefetch)
 - **Phase 7** — i18n клиентских модулей (`i18n!<Module>`, словари по locale, `template()` с ICU-plural, SSR-гидрация без mismatch, locale в ALS) и доработка слайсов по мотивам DataEnv (`destroy` / `isDestroyed`, `_initState(result, config)`, сериализация `config`, мерж `setState`, `getDataFactoryArguments`, атомарный `adoptPage`), публикация `@tusten/core@0.2.0-beta.5` в npm
+- **Phase 8** — `create-tusten-app`, каталог навигации (`getNavigation`), сжатие и предсжатие ответов, `publicDir`, хэшированные ассеты, `startTransition` + `pending`, алиасы из `tsconfig.json`, опциональный `prefetchConfig`; релиз `@tusten/core@0.2.0-beta.7` и `create-tusten-app@0.2.0-beta.7`
 
 ### 🚧 В разработке
 
@@ -670,7 +803,6 @@ tusten-framework/
 
 ### 📋 Запланировано
 
-- `create-tusten-app` — CLI-скаффолдер (`pnpm dlx create-tusten-app my-app`)
 - Пресеты (`defineConfig({ preset: 'tailwind' })`)
 - Сайт документации (сам tusten на tusten)
 - `tusten i18n extract` — скан `rk(...)` через TS AST и типизированные ключи
@@ -806,13 +938,13 @@ pnpm publish:latest
 ### Как отслеживать
 
 - **GitHub Releases** — каждое изменение, помеченное `BREAKING` или `feat`.
-- **[`packages/tusten/CHANGELOG.md`](packages/tusten/CHANGELOG.md)** — полная история изменений (Keep a Changelog + SemVer).
-- **[`README.md`](README.md)** — актуальная документация.
+- **[`packages/tusten/CHANGELOG.md`](https://github.com/yartema/tusten-framework/blob/main/packages/tusten/CHANGELOG.md)** — полная история изменений (Keep a Changelog + SemVer).
+- **[`README.md`](https://github.com/yartema/tusten-framework/blob/main/README.md)** — актуальная документация.
 
 ### Если вы уже используете tusten
 
 - **Читайте Release Notes** перед `pnpm update @tusten/core`.
-- **Фиксируйте точную версию** в проде — `pnpm add @tusten/core@0.2.0-beta.6` (не `@beta`).
+- **Фиксируйте точную версию** в проде — `pnpm add @tusten/core@0.2.0-beta.7` (не `@beta`).
 - **Пишите обёртки** над публичным API — если сигнатура изменится, поправите в одном месте.
 - **Сообщайте о проблемах** — [Issues](https://github.com/yartema/tusten-framework/issues) помогают стабилизировать API раньше.
 
@@ -820,7 +952,7 @@ pnpm publish:latest
 
 ## 📄 Лицензия
 
-[MIT](LICENSE) © 2026 yartema
+[MIT](https://github.com/yartema/tusten-framework/blob/main/LICENSE) © 2026 yartema
 
 ---
 

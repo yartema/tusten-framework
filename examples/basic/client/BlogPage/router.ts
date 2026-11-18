@@ -11,6 +11,8 @@ export default defineRoute([
         id: 'blog',
         slug: [':id'],
         layout: 'layouts/Main',
+        // Динамический маршрут: `href` ядро не придумывает — подставляет приложение.
+        navigation: { title: 'Blog', order: 20 },
         metaConfig: {
             readMethod: 'Blogs.ReadMetaInfo',
             cache: 60_000,

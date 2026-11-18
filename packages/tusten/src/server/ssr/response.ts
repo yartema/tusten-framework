@@ -1,6 +1,16 @@
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import type { ServerResponse } from 'node:http'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { TustenCompressEncoding } from '../../types'
 import { buildDevErrorPage, buildProdErrorPage, createErrorId } from '../error-page'
+import {
+    createCompressor,
+    isCompressibleContentType,
+    negotiateEncoding,
+    withCompressionHeaders,
+    type CompressionOptions,
+} from './compression'
 
 /** Опции создания ответчика. */
 export interface ResponderOptions {
@@ -10,6 +20,15 @@ export interface ResponderOptions {
     projectDir: string
     /** Правка стека по sourcemap (dev); уже безопасная обёртка. */
     fixStack?: (error: unknown) => void
+    /**
+     * Настройки сжатия готовых тел (SPA-shell, 404, страницы ошибок).
+     *
+     * `null` — сжатие выключено в конфиге. SSR-стрим сжимается отдельно:
+     * у него нет готовой длины, поэтому порог к нему не применим.
+     */
+    compression?: CompressionOptions | null
+    /** `Accept-Encoding` запроса. */
+    acceptEncoding?: string
 }
 
 /**
@@ -113,6 +132,24 @@ export function createResponder(
     }
 
     /**
+     * Выбирает кодировку для готового тела.
+     *
+     * Порог нужен и для HTML: сжатие 300-байтной страницы ошибки тратит CPU
+     * и увеличивает ответ. Стрим сжимается всегда — там длины заранее нет.
+     *
+     * @param contentType тип тела.
+     * @param body тело.
+     * @returns кодировка или `null`.
+     */
+    const pickBodyEncoding = (contentType: string, body: string): TustenCompressEncoding | null => {
+        const compression = options.compression
+        if (!compression) return null
+        if (!isCompressibleContentType(contentType)) return null
+        if (Buffer.byteLength(body) < compression.threshold) return null
+        return negotiateEncoding(options.acceptEncoding, compression.encodings)
+    }
+
+    /**
      * Отдаёт тело ответа, если заголовки ещё не ушли.
      *
      * @param status HTTP-статус.
@@ -128,9 +165,21 @@ export function createResponder(
             return
         }
 
+        const encoding = pickBodyEncoding(contentType, body)
         raw.statusCode = status
-        writeHeaders(contentType, headers)
-        raw.end(body)
+        writeHeaders(contentType, encoding ? withCompressionHeaders(headers, encoding) : headers)
+
+        if (!encoding) {
+            raw.end(body)
+            return
+        }
+
+        // Пайплайн асинхронный: `send` остаётся синхронным для вызывающих.
+        // Ошибка zlib уже после коммита заголовков не превращается в 500 —
+        // сокет просто закрывается, клиент увидит оборванный ответ.
+        void pipeline(Readable.from(body), createCompressor(encoding), raw).catch(() => {
+            if (!raw.writableEnded) raw.destroy()
+        })
     }
 
     return {

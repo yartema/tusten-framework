@@ -1,6 +1,24 @@
 import { TustenError } from '../../core/errors'
 import type { AbstractSlice } from './AbstractSlice'
 
+/** Release без работы (adopt с тем же реестром). */
+const noopRelease = (): void => {}
+
+/**
+ * Создаёт идемпотентную функцию уничтожения вытесненных слайсов.
+ *
+ * @param slices вытесненные инстансы.
+ * @returns функция release.
+ */
+function createRelease(slices: readonly AbstractSlice<unknown>[]): () => void {
+    let released = false
+    return () => {
+        if (released) return
+        released = true
+        for (const slice of slices) slice.destroy()
+    }
+}
+
 /**
  * Реестр слайсов.
  *
@@ -117,25 +135,31 @@ export class SliceRegistry {
      *
      * Нужен, чтобы не убивать старую страницу до успешного префетча новой:
      * новая страница прогревается в отдельном реестре, и только после успеха
-     * её слайсы переезжают сюда, а старые уничтожаются.
+     * её слайсы переезжают сюда.
      *
      * Подписчиков **не** нотифицируем: сразу после вызова client-entry делает
      * `rootRef.render` с новым деревом, и все компоненты читают новый реестр.
      * Нотификация здесь заставила бы React перерисовать ещё смонтированную
-     * старую страницу — ровно в момент, когда её слайсы уже уничтожены.
+     * старую страницу — ровно в момент, когда её слайсы уже заменены.
+     *
+     * Вытесненные инстансы **не уничтожаются сразу**: при `startTransition`
+     * новая страница коммитится отложенно, и старая ещё смонтирована. Вызывающий
+     * обязан вызвать возвращённую функцию после commit нового дерева.
      *
      * @param source реестр с прогретыми page-слайсами новой страницы
      * (после вызова остаётся пустым — инстансы переезжают).
+     * @returns идемпотентная функция уничтожения вытесненных слайсов.
      */
-    adoptPage(source: SliceRegistry): void {
-        if (source === this) return
+    adoptPage(source: SliceRegistry): () => void {
+        if (source === this) return noopRelease
 
-        const oldKeys = [...this.page.keys()]
-        for (const key of oldKeys) this.page.get(key)?.destroy()
+        const retired = [...this.page.values()]
         this.page.clear()
 
         for (const [key, slice] of source.page) this.page.set(key, slice)
         source.page.clear()
+
+        return createRelease(retired)
     }
 
     /**
@@ -146,21 +170,26 @@ export class SliceRegistry {
      * не от всех загруженных глобальных лоадеров.
      *
      * Как и `adoptPage()`, не нотифицирует подписчиков: вызывающий код сразу
-     * делает `rootRef.render`, и старые подписки не должны увидеть уничтоженные
-     * слайсы. Нужен, чтобы при ошибке reload не подменять глобальные состояния
-     * частично — они переезжают только после успешной загрузки всех лоадеров.
+     * делает `rootRef.render`, и старые подписки не должны увидеть заменённые
+     * слайсы. Вытесненные инстансы уничтожаются не сразу, а возвращённой
+     * функцией — после commit нового дерева.
      *
      * @param source реестр с прогретыми global-слайсами (после вызова пуст).
+     * @returns идемпотентная функция уничтожения вытесненных слайсов.
      */
-    adoptGlobal(source: SliceRegistry): void {
-        if (source === this) return
+    adoptGlobal(source: SliceRegistry): () => void {
+        if (source === this) return noopRelease
+
+        const retired: AbstractSlice<unknown>[] = []
 
         for (const [key, slice] of source.global) {
             const prev = this.global.get(key)
-            if (prev && prev !== slice) prev.destroy()
+            if (prev && prev !== slice) retired.push(prev)
             this.global.set(key, slice)
         }
         source.global.clear()
+
+        return createRelease(retired)
     }
 
     /** Уничтожает все слайсы (конец запроса / размонтирование). */

@@ -1,5 +1,10 @@
 import { JSX, ReactNode } from 'react'
-import { Link, Outlet, usePathname } from '@tusten/core/client'
+import { getNavigation } from '@tusten/core'
+import { Link, Outlet, usePathname, useSlice } from '@tusten/core/client'
+import type { UserInfoSlice } from '../User/loaders/userInfo'
+
+/** Демо-slug для динамического пункта «Blog»: каталог сам URL не придумывает. */
+const BLOG_DEMO_SLUG = 'hello'
 
 /**
  * Основной layout: header с навигацией, main, footer.
@@ -25,6 +30,16 @@ export default function Main(): JSX.Element {
  * @returns JSX-элемент.
  */
 function Header(): JSX.Element {
+    const user = useSlice<UserInfoSlice>('userInfo')
+    const permissions = user?.state?.permissions
+
+    // Каталог статичен, а права и выбранный slug — прикладные данные:
+    // фильтр и сортировка считаются в рендере, чтобы обновиться после логина.
+    const items = getNavigation()
+        .filter((item) => (typeof item.permission === 'string' ? permissions?.get(item.permission) === true : true))
+        .map((item) => (item.dynamic && item.id === 'blog' ? { ...item, href: `/blog/${BLOG_DEMO_SLUG}` } : item))
+        .sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0))
+
     return (
         <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/80 backdrop-blur">
             <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
@@ -33,10 +48,18 @@ function Header(): JSX.Element {
                     <span className="text-slate-700">demo</span>
                 </Link>
                 <nav className="flex gap-1">
-                    <NavLink href="/">Home</NavLink>
-                    <NavLink href="/about">About</NavLink>
-                    <NavLink href="/blog/hello">Blog</NavLink>
-                    <NavLink href="/admin">Admin</NavLink>
+                    {items.map((item) => {
+                        const title = typeof item.title === 'string' ? item.title : item.id
+                        return item.href ? (
+                            <NavLink key={item.id} href={item.href}>
+                                {title}
+                            </NavLink>
+                        ) : (
+                            <span key={item.id} className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-400">
+                                {title}
+                            </span>
+                        )
+                    })}
                 </nav>
             </div>
         </header>

@@ -1,10 +1,10 @@
 import path from 'node:path'
 import { existsSync, promises as fs, readdirSync } from 'node:fs'
 import type { Dirent } from 'node:fs'
-import { createJiti } from 'jiti'
 import type { FactoryMap, TustenRoute, ScanResult, I18nRegistry, TustenI18nConfig } from '../types'
 import { TustenError } from './errors'
 import { fileExists, resolveRealPath, walkFiles } from '../utils/fs'
+import { createProjectJiti } from '../utils/project-jiti'
 
 /**
  * Сканнер клиентского каталога.
@@ -14,14 +14,12 @@ import { fileExists, resolveRealPath, walkFiles } from '../utils/fs'
  * 2. Рекурсивно ищет `*.loader.ts` и собирает карты глобальных загрузчиков.
  *
  * @param clientDir абсолютный путь до `clientDir`.
+ * @param projectDir корень проекта (для `paths` из tsconfig); по умолчанию — родитель `clientDir`.
  * @returns результат сканирования с модулями и их содержимым.
  */
-export async function scan(clientDir: string): Promise<ScanResult> {
+export async function scan(clientDir: string, projectDir?: string): Promise<ScanResult> {
     // jiti обрабатывает .ts в рантайме без отдельной сборки.
-    const jiti = createJiti(import.meta.url, {
-        interopDefault: true,
-        jsx: true,
-    })
+    const jiti = createProjectJiti(projectDir ?? path.dirname(clientDir), { jsx: true })
 
     const routeModules: ScanResult['routeModules'] = []
     const loaderModules: ScanResult['loaderModules'] = []

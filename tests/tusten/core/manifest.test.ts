@@ -19,6 +19,7 @@ type ConfigOverrides = Partial<Omit<ResolvedTustenConfig, 'client' | 'server'>> 
 function makeConfig(overrides: ConfigOverrides = {}): ResolvedTustenConfig {
     const base: ResolvedTustenConfig = {
         ssr: true,
+        publicDir: 'public',
         client: {
             clientDir: 'client',
             css: [],
@@ -32,6 +33,7 @@ function makeConfig(overrides: ConfigOverrides = {}): ResolvedTustenConfig {
             routes: null,
             plugins: null,
             rpc: { enabled: true, url: '/service', describe: true },
+            compress: null,
         },
         middleware: [],
         vite: {},
@@ -190,6 +192,28 @@ describe('buildManifest', () => {
             '/proj/client',
         )
         expect(m.modules['X/Factories/Root']?.kind).toBe('config')
+    })
+
+    it('route без prefetchConfig → только component, без config', () => {
+        const m = buildManifest(
+            makeScan({
+                routeModules: [
+                    {
+                        file: '/proj/client/A/router.ts',
+                        routes: [
+                            {
+                                id: 'a',
+                                contentConfig: { workspaceConfig: { template: 'A/view:View' } },
+                            },
+                        ],
+                    },
+                ],
+            }),
+            makeConfig(),
+            '/proj/client',
+        )
+        expect(m.modules['A/view']?.kind).toBe('component')
+        expect(Object.values(m.modules).some((mod) => mod.kind === 'config')).toBe(false)
     })
 
     it('version детерминированная — одинаковые модули → одинаковый hash', () => {

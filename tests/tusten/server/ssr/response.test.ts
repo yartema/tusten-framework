@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { PassThrough } from 'node:stream'
+import { gunzipSync } from 'node:zlib'
 import type { FastifyReply } from 'fastify'
+import type { CompressionOptions } from '../../../../packages/tusten/src/server/ssr/compression'
 import { createResponder, createStackFixer } from '../../../../packages/tusten/src/server/ssr/response'
 
 /** Фейковый `reply.raw`, достаточный для ответчика. */
@@ -157,5 +160,114 @@ describe('createStackFixer', () => {
 
     it('без хука — no-op', () => {
         expect(() => createStackFixer()(new Error('boom'))).not.toThrow()
+    })
+})
+
+/** Потоковый `reply.raw`: настоящий Writable, чтобы отработал zlib-пайплайн. */
+function makeStreamReply() {
+    const raw = new PassThrough()
+    const headers: Record<string, string> = {}
+    Object.assign(raw, {
+        statusCode: 200,
+        headersSent: false,
+        setHeader(name: string, value: string) {
+            headers[name] = value
+        },
+    })
+
+    const chunks: Buffer[] = []
+    raw.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)))
+
+    return {
+        reply: { raw } as unknown as FastifyReply,
+        raw,
+        headers,
+        chunks,
+        /** Дожидается конца ответа и возвращает тело. */
+        finished(): Promise<Buffer> {
+            return new Promise((resolve) => raw.on('end', () => resolve(Buffer.concat(chunks))))
+        },
+    }
+}
+
+const compression: CompressionOptions = { threshold: 0, encodings: ['gzip'] }
+
+describe('createResponder: сжатие готового тела', () => {
+    it('gzip: Content-Encoding, Vary и разжимаемое тело', async () => {
+        const { reply, headers, finished } = makeStreamReply()
+        const responder = createResponder({ method: 'GET', url: '/spa' }, reply, {
+            isDev: false,
+            projectDir: '/project',
+            compression,
+            acceptEncoding: 'gzip',
+        })
+
+        const body = `<html>${'x'.repeat(2048)}</html>`
+        responder.send(200, 'text/html; charset=utf-8', body, { Vary: 'Accept-Language, Cookie' })
+
+        const sent = await finished()
+        expect(headers['Content-Encoding']).toBe('gzip')
+        expect(headers.Vary).toBe('Accept-Language, Cookie, Accept-Encoding')
+        expect(gunzipSync(sent).toString()).toBe(body)
+    })
+
+    it('тело меньше threshold — без сжатия', async () => {
+        const { reply, headers, finished } = makeStreamReply()
+        const responder = createResponder({ method: 'GET', url: '/spa' }, reply, {
+            isDev: false,
+            projectDir: '/project',
+            compression: { threshold: 1024, encodings: ['gzip'] },
+            acceptEncoding: 'gzip',
+        })
+
+        responder.send(200, 'text/html; charset=utf-8', 'small')
+
+        expect(await finished()).toEqual(Buffer.from('small'))
+        expect(headers['Content-Encoding']).toBeUndefined()
+    })
+
+    it('несжимаемый content-type — без сжатия', async () => {
+        const { reply, headers, finished } = makeStreamReply()
+        const responder = createResponder({ method: 'GET', url: '/image' }, reply, {
+            isDev: false,
+            projectDir: '/project',
+            compression,
+            acceptEncoding: 'gzip',
+        })
+
+        responder.send(200, 'image/png', 'binary')
+
+        await finished()
+        expect(headers['Content-Encoding']).toBeUndefined()
+    })
+
+    it('клиент не просил сжатие — без сжатия', async () => {
+        const { reply, headers, finished } = makeStreamReply()
+        const responder = createResponder({ method: 'GET', url: '/spa' }, reply, {
+            isDev: false,
+            projectDir: '/project',
+            compression,
+            acceptEncoding: 'identity',
+        })
+
+        responder.send(200, 'text/html; charset=utf-8', 'x'.repeat(2048))
+
+        await finished()
+        expect(headers['Content-Encoding']).toBeUndefined()
+    })
+
+    it('сжатие выключено в конфиге — Accept-Encoding игнорируется', async () => {
+        const { reply, headers, finished } = makeStreamReply()
+        const responder = createResponder({ method: 'GET', url: '/spa' }, reply, {
+            isDev: false,
+            projectDir: '/project',
+            compression: null,
+            acceptEncoding: 'gzip',
+        })
+
+        responder.send(200, 'text/html; charset=utf-8', 'x'.repeat(2048))
+
+        await finished()
+        expect(headers['Content-Encoding']).toBeUndefined()
     })
 })

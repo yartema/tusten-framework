@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { createJiti } from 'jiti'
+import { createProjectJiti } from '../utils/project-jiti'
 import type {
     FactoryMap,
     ResolvedTustenConfig,
@@ -29,12 +29,13 @@ export async function collectFactoryModules(
     scanResult: ScanResult,
     clientDir: string,
 ): Promise<string[]> {
-    void projectDir
-    const jiti = createJiti(import.meta.url, { interopDefault: true, jsx: true })
+    const jiti = createProjectJiti(projectDir, { jsx: true })
     const out = new Set<string>()
 
     for (const route of routeTree.byId.values()) {
-        const cfgSpec = route.contentConfig.prefetchConfig.configLoader
+        const prefetchCfg = route.contentConfig.prefetchConfig
+        const cfgSpec = prefetchCfg?.configLoader
+        if (!prefetchCfg || !cfgSpec) continue
         const [file, exportName] = cfgSpec.split(':')
         const abs = path.resolve(clientDir, file)
         try {
@@ -54,10 +55,7 @@ export async function collectFactoryModules(
                 query: {},
                 request: {},
             }
-            const factoryMap = await getConfig(
-                route.contentConfig.prefetchConfig.configParams ?? {},
-                router,
-            )
+            const factoryMap = await getConfig(prefetchCfg.configParams ?? {}, router)
             for (const def of Object.values(factoryMap)) {
                 out.add(def.dataFactoryName)
             }

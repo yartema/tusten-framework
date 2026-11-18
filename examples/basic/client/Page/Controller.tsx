@@ -1,5 +1,6 @@
 import { createContext, useContext, type JSX, type ReactNode } from 'react'
-import type { RootControllerProps, TustenClientRoute } from '@tusten/core/client'
+import type { TustenClientRoute } from '@tusten/core'
+import { NavigationProgress, type RootControllerProps } from '@tusten/core/client'
 
 /** Значение контекста корневой оболочки. */
 interface AppShellContextValue {
@@ -37,6 +38,7 @@ export function useAppShell(): AppShellContextValue {
 export function Root({ children, route, status }: RootControllerProps): JSX.Element {
     return (
         <AppShellContext.Provider value={{ route }}>
+            <NavigationProgress />
             <div className="min-h-screen" data-app-shell="" data-status={status}>
                 {children as ReactNode}
             </div>

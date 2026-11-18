@@ -23,6 +23,61 @@ function normalizeLayout(layout: string | string[] | false, routeId: string): st
 }
 
 /**
+ * Проверяет, что `route.navigation` переживёт `JSON.stringify`.
+ *
+ * `navigation` уезжает в `routesData` (Vite-плагин) через `JSON.stringify`:
+ * функции и символы он молча выбросит, `Date` превратит в строку, а
+ * `bigint`/циклы — уронят сборку. Тихая потеря данных хуже явной ошибки,
+ * поэтому валидируем на построении дерева и показываем id маршрута.
+ *
+ * @param value проверяемое значение.
+ * @param routeId id маршрута (для сообщения).
+ * @param path путь внутри `navigation` (для сообщения).
+ * @param seen объекты текущей ветки (защита от циклов).
+ * @throws {TustenError} если значение не JSON-safe.
+ */
+function assertNavigationJsonSafe(value: unknown, routeId: string, path: string, seen: WeakSet<object>): void {
+    if (value === null || value === undefined) return
+
+    const type = typeof value
+    if (type === 'string' || type === 'number' || type === 'boolean') return
+    if (type !== 'object') {
+        throw new TustenError(`Route "${routeId}": ${path} has type "${type}", which is not JSON-serializable`)
+    }
+
+    const object = value as object
+    if (Array.isArray(object)) {
+        if (seen.has(object)) {
+            throw new TustenError(`Route "${routeId}": ${path} contains a circular reference`)
+        }
+        seen.add(object)
+        object.forEach((item, index) => assertNavigationJsonSafe(item, routeId, `${path}[${index}]`, seen))
+        seen.delete(object)
+        return
+    }
+
+    if (object instanceof Date) {
+        throw new TustenError(`Route "${routeId}": ${path} is a Date, which is not JSON-safe (use an ISO string)`)
+    }
+
+    const proto = Object.getPrototypeOf(object)
+    if (proto !== Object.prototype && proto !== null) {
+        throw new TustenError(
+            `Route "${routeId}": ${path} is a class instance, which is not JSON-safe (use a plain object)`,
+        )
+    }
+
+    if (seen.has(object)) {
+        throw new TustenError(`Route "${routeId}": ${path} contains a circular reference`)
+    }
+    seen.add(object)
+    for (const [key, item] of Object.entries(object)) {
+        assertNavigationJsonSafe(item, routeId, `${path}.${key}`, seen)
+    }
+    seen.delete(object)
+}
+
+/**
  * Строит и валидирует дерево маршрутов из результата сканирования.
  *
  * Проверки:
@@ -50,6 +105,10 @@ export function buildRouteTree(
         for (const route of routes) {
             if (byId.has(route.id)) {
                 throw new TustenError(`Duplicate route id "${route.id}" (found in multiple router.ts files)`)
+            }
+            // JSON-safe проверяем здесь: id маршрута уже есть, а routesData ещё нет.
+            if (route.navigation !== undefined && route.navigation !== null) {
+                assertNavigationJsonSafe(route.navigation, route.id, 'navigation', new WeakSet())
             }
             byId.set(route.id, route)
             allRoutes.push(route)

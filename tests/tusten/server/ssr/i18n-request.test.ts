@@ -7,6 +7,7 @@ import type { ResolvedTustenConfig } from '../../../../packages/tusten/src/types
 function makeConfig(i18n: ResolvedTustenConfig['i18n'] = null): ResolvedTustenConfig {
     return {
         ssr: true,
+        publicDir: 'public',
         client: {
             clientDir: 'client',
             css: [],
@@ -20,6 +21,7 @@ function makeConfig(i18n: ResolvedTustenConfig['i18n'] = null): ResolvedTustenCo
             routes: null,
             plugins: null,
             rpc: { enabled: true, url: '/service', describe: true },
+            compress: null,
         },
         middleware: [],
         vite: {},

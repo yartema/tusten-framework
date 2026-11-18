@@ -53,6 +53,39 @@ export interface ResolvedRootConfig {
     container: ResolvedRootElement
 }
 
+/** Поддерживаемые кодировки сжатия. */
+export type TustenCompressEncoding = 'br' | 'gzip'
+
+/**
+ * Настройки сжатия HTTP-ответов.
+ *
+ * Сжатие включено по умолчанию; `server.compress: false` полностью выключает
+ * его (например, когда сжимает прокси или CDN).
+ */
+export interface TustenCompressConfig {
+    /** Минимальный размер тела, ниже которого сжатие не применяется. По умолчанию 1024. */
+    threshold?: number
+    /** Кодировки в порядке предпочтения. По умолчанию `['br', 'gzip']`. */
+    encodings?: TustenCompressEncoding[]
+    /**
+     * Сжимать ли стримируемый SSR-документ. По умолчанию `true`.
+     *
+     * SPA-shell и 404 сжимаются независимо от этого флага: они отдаются готовым
+     * телом, а не стримом.
+     */
+    ssr?: boolean
+}
+
+/** Нормализованные настройки сжатия. */
+export interface ResolvedCompressOptions {
+    /** Минимальный размер тела. */
+    threshold: number
+    /** Кодировки в порядке предпочтения. */
+    encodings: TustenCompressEncoding[]
+    /** Сжимать ли SSR-стрим. */
+    ssr: boolean
+}
+
 /**
  * Конфигурация фреймворка, задаваемая в `tusten.config.ts`
  * через `defineConfig`.
@@ -60,6 +93,15 @@ export interface ResolvedRootConfig {
 export interface TustenConfig {
     /** Включён ли SSR. Если `false` — приложение работает как SPA. */
     ssr?: boolean
+    /**
+     * Каталог статики, отдаваемый с корня сайта. По умолчанию `public`
+     * (рядом с `client` и `server`).
+     *
+     * Vite обслуживает его в dev и копирует в `dist/client` при сборке;
+     * в prod содержимое каталога раздаётся как есть (файлы с хэшем — immutable,
+     * остальные — `no-cache`). `false` отключает каталог.
+     */
+    publicDir?: string | false
     /** Настройки клиента. */
     client?: {
         /** Каталог клиентского кода. По умолчанию `client`. */
@@ -102,6 +144,11 @@ export interface TustenConfig {
         plugins?: string
         /** Настройки JSON-RPC 2.0. `false` — отключить. */
         rpc?: false | RpcOptions
+        /**
+         * Сжатие HTTP-ответов. По умолчанию включено (brotli + gzip).
+         * `false` — выключить (если сжимает прокси/CDN).
+         */
+        compress?: false | TustenCompressConfig
     }
     /** Глобальные middleware (client / server / both). */
     middleware?: MiddlewareDef[]
@@ -161,6 +208,8 @@ export interface TustenI18nConfig {
 export interface ResolvedTustenConfig {
     // Флаг, включен ли SSR
     ssr: boolean
+    // Каталог статики относительно корня проекта; null — отключён
+    publicDir: string | null
     // Настройки клиента
     client: {
         // Название папки клиента в корне проекта, по умолчанию client
@@ -187,6 +236,8 @@ export interface ResolvedTustenConfig {
         routes: string | null
         plugins: string | null
         rpc: ResolvedRpcOptions
+        // Сжатие HTTP-ответов; null — выключено
+        compress: ResolvedCompressOptions | null
     }
     middleware: MiddlewareDef[]
     vite: UserConfig

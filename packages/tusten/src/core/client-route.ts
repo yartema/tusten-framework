@@ -1,4 +1,4 @@
-import type { MetaConfig, TustenClientRoute, TustenRoute } from '../types'
+import type { MetaConfig, RouteTree, TustenClientRoute, TustenRoute } from '../types'
 
 /**
  * Источник проекции: серверный `TustenRoute` или клиентская запись,
@@ -71,11 +71,31 @@ export function toClientRoute(route: ClientRouteSource, context: ClientRouteCont
         slug: route.slug,
         ssr: route.ssr,
         meta: route.meta ?? {},
+        navigation: route.navigation,
         metaConfig: route.metaConfig ?? null,
         contentConfig: route.contentConfig,
         middleware: route.middleware ?? [],
         layoutChain: context.layoutChain ?? [],
     }
+}
+
+/**
+ * Проецирует всё дерево маршрутов в клиентские записи.
+ *
+ * Одна и та же форма нужна и Vite-плагину (`routesData`), и серверному
+ * сидингу каталога навигации — иначе SSR и клиент разойдутся.
+ *
+ * @param routeTree построенное дерево маршрутов.
+ * @returns клиентские записи в порядке объявления (`byId` — `Map`).
+ */
+export function buildClientRoutes(routeTree: RouteTree): TustenClientRoute[] {
+    return Array.from(routeTree.byId.values()).map((route) =>
+        toClientRoute(route, {
+            path: routeTree.paths.get(route.id) ?? '/',
+            parentIds: collectParentIds(route.id, routeTree.byId),
+            layoutChain: routeTree.layoutChains.get(route.id) ?? [],
+        }),
+    )
 }
 
 /**

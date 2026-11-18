@@ -11,6 +11,9 @@ export type {
     TustenRootConfig,
     ResolvedRootConfig,
     TustenConfig,
+    TustenCompressConfig,
+    TustenCompressEncoding,
+    ResolvedCompressOptions,
     TustenI18nConfig,
     ResolvedTustenConfig,
 } from './config'
@@ -18,6 +21,8 @@ export type {
 export type { HttpMethod, ServerRoute, ServerPluginDef, ServerPluginsOptions } from './server'
 
 export type { MiddlewareDef } from './middleware'
+
+export type { TustenRouteNavigation, TustenNavigationItem } from './navigation'
 
 export type {
     TustenRoute,

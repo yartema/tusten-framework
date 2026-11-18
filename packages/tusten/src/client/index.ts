@@ -5,11 +5,10 @@
  *
  * Используется как `import { ... } from '@tusten/core/client'`.
  *
- * Содержит всё из `tusten` (pure, без jiti) + React-специфику.
+ * Здесь только React-специфика и клиентский рантайм. Изоморфные (core-safe)
+ * вещи — `defineConfig`, `defineRoute`, `Slice`, `Service`, `TustenError`,
+ * prefetch и типы — импортируются из `@tusten/core` и здесь не дублируются.
  */
-
-// Pure API из `tusten` (defineConfig, Slice, TustenError, computePath, types).
-export * from '..'
 
 // React-специфика.
 export { RootProvider, useResourceContext } from './context/RootProvider'
@@ -24,6 +23,10 @@ export { useRouter, getRouter } from './hooks/useRouter'
 export type { TustenRouterApi, RouterReloadOptions } from './hooks/useRouter'
 export { useNavigation } from './hooks/useNavigation'
 export type { TustenNavigation } from './hooks/useNavigation'
+export { useNavigationPending } from './hooks/useNavigationPending'
+export { NavigationProgress } from './navigation/NavigationProgress'
+export type { NavigationProgressProps } from './navigation/NavigationProgress'
+export { isNavigationPending, setNavigationPending, subscribeNavigationPending } from './navigation/status'
 export { useRoute } from './hooks/useRoute'
 export type { RootControllerProps, RootControllerStatus } from './root-controller'
 export { useParams } from './hooks/useParams'
@@ -33,9 +36,7 @@ export { usePathname } from './hooks/usePathname'
 export { Link } from './Link'
 export type { LinkProps } from './Link'
 
-export { Service } from './rpc/Service'
 export { Remote } from './rpc/Remote'
-export type { ServiceOptions, CrudOp, IBinding } from '../types'
 export { Outlet, OutletProvider, renderLayoutChain } from './layout'
 export { RootErrorBoundary } from './error-boundary'
 export type { RootErrorBoundaryProps } from './error-boundary'

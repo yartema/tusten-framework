@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { createJiti } from 'jiti'
+import { createProjectJiti } from '../utils/project-jiti'
 import { fileExists } from '../utils/fs'
 import { TustenError } from '../core/errors'
 import type { ServerRoute } from '../types'
@@ -23,7 +23,7 @@ export async function loadServerRoutes(projectDir: string, routesPath: string): 
         throw new TustenError(`server.routes not found: ${abs}`)
     }
 
-    const jiti = createJiti(import.meta.url, { interopDefault: true })
+    const jiti = createProjectJiti(projectDir)
     const mod = (await jiti.import(abs)) as Record<string, unknown>
     const routes = mod.default
 

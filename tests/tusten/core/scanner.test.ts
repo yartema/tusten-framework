@@ -67,6 +67,20 @@ describe('scan', () => {
         expect(result.routeModules[0].routes[0].id).toBe('home')
     })
 
+    it('минимальный маршрут: только id и template, без loaders', async () => {
+        const clientDir = join(tmpRoot, 'minimal-router')
+        await makeFile(
+            'minimal-router/Static/router.ts',
+            `export default [
+               { id: 'static', contentConfig: { workspaceConfig: { template: 'Static/view:View' } } },
+             ]`,
+        )
+        const result = await scan(clientDir)
+        expect(result.routeModules).toHaveLength(1)
+        expect(result.routeModules[0].routes[0].id).toBe('static')
+        expect(result.loaderModules).toEqual([])
+    })
+
     it('router.ts не на первом уровне — игнорируется', async () => {
         const clientDir = join(tmpRoot, 'nested')
         await makeFile('nested/A/B/router.ts', `export default []`)

@@ -173,7 +173,16 @@ export function createSSRHandler(options: SSRHandlerOptions) {
     return async function handler(req: FastifyRequest, reply: FastifyReply): Promise<void> {
         reply.hijack()
 
-        const responder = createResponder(req, reply, { isDev, projectDir, fixStack })
+        const compression = config.server.compress
+        const acceptEncoding =
+            typeof req.headers['accept-encoding'] === 'string' ? req.headers['accept-encoding'] : undefined
+        const responder = createResponder(req, reply, {
+            isDev,
+            projectDir,
+            fixStack,
+            compression,
+            acceptEncoding,
+        })
         const i18n = createI18nRequest({
             runtime: i18nRuntime,
             config,
@@ -384,6 +393,8 @@ export function createSSRHandler(options: SSRHandlerOptions) {
                 responder,
                 headers: i18n.headers,
                 fixStack,
+                compression: compression?.ssr ? compression : null,
+                acceptEncoding,
                 // Суффикс собираем в flush: к концу стрима `ctx.used` содержит
                 // все модули, которые реально вызвали `rk`.
                 buildTail: (streamErrors) =>

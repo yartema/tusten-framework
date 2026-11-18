@@ -25,10 +25,10 @@ import { RpcRegistry } from './server/rpc-registry'
 async function prepare(cwd: string) {
     const config = await loadConfig(cwd)
     const clientDir = path.resolve(cwd, config.client.clientDir)
-    const scanResult = await scan(clientDir)
+    const scanResult = await scan(clientDir, cwd)
     const routeTree = buildRouteTree(scanResult.routeModules, scanResult.loaderModules, config)
     const manifest = buildManifest(scanResult, config, clientDir)
-    __initResolver({ clientDir })
+    __initResolver({ clientDir, projectDir: cwd })
 
     const globalRegistry: FactoryMap = {}
     const sources = new Map<string, string>()
@@ -49,7 +49,7 @@ async function prepare(cwd: string) {
     const serverDir = path.resolve(cwd, config.server.serverDir)
     let rpcRegistry: RpcRegistry | null = null
     if (config.server.rpc.enabled) {
-        const rpcObjects = await scanRpcObjects(serverDir)
+        const rpcObjects = await scanRpcObjects(serverDir, cwd)
         rpcRegistry = new RpcRegistry()
         for (const obj of rpcObjects) rpcRegistry.add(obj)
     }

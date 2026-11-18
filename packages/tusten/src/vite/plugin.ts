@@ -149,7 +149,8 @@ export function tustenPlugin(options: TustenVitePluginOptions): Plugin {
     for (const route of routeTree.byId.values()) {
         addSpec(route.contentConfig.workspaceConfig.template)
         for (const layoutSpec of routeTree.layoutChains.get(route.id) ?? []) addSpec(layoutSpec)
-        addSpec(route.contentConfig.prefetchConfig.configLoader)
+        const configLoader = route.contentConfig.prefetchConfig?.configLoader
+        if (configLoader) addSpec(configLoader)
     }
     for (const spec of factoryModules) addSpec(spec)
     for (const def of Object.values(globalFactories)) {
@@ -175,7 +176,8 @@ export function tustenPlugin(options: TustenVitePluginOptions): Plugin {
     for (const route of routeTree.byId.values()) {
         allSsrSpecs.add(route.contentConfig.workspaceConfig.template)
         for (const layoutSpec of routeTree.layoutChains.get(route.id) ?? []) allSsrSpecs.add(layoutSpec)
-        allSsrSpecs.add(route.contentConfig.prefetchConfig.configLoader)
+        const configLoader = route.contentConfig.prefetchConfig?.configLoader
+        if (configLoader) allSsrSpecs.add(configLoader)
     }
 
     for (const spec of factoryModules) allSsrSpecs.add(spec)
@@ -543,24 +545,29 @@ function generateEntryModule(cssFiles: string[] = []): string {
 
     return `
 ${cssImport}
-import { createElement } from 'react'
+import { createElement, Fragment, startTransition, useEffect } from 'react'
 import { createRoot, hydrateRoot } from 'react-dom/client'
-import { resolveMeta } from '@tusten/core'
+import {
+  resolveMeta,
+  Slice,
+  SliceRegistry,
+  Service,
+  runGlobalPrefetch,
+  runPagePrefetch,
+  pickClientRoute,
+  buildNavigation,
+  setNavigationCatalog,
+} from '@tusten/core'
 import {
   RootProvider,
   RootErrorBoundary,
   RootLoading,
   RootNotFound,
-  Slice,
-  SliceRegistry,
-  Service,
   renderLayoutChain,
-  runGlobalPrefetch,
-  runPagePrefetch,
   devalueParse,
   initI18n,
   loadRegisteredDictionaries,
-  pickClientRoute,
+  setNavigationPending,
 } from '@tusten/core/client'
 import {
   findRouteById,
@@ -570,6 +577,7 @@ import {
   loadMiddlewareModule,
   resolveModule,
   resolveComponent,
+  routes,
   globalFactories,
   components,
   root as rootMeta,
@@ -658,6 +666,57 @@ function fullMiddlewareChain(route) {
 }
 
 /**
+ * Release-функции слайсов, вытесненных adoptPage/adoptGlobal.
+ *
+ * Складываем их сюда, а не уничтожаем сразу: новый рендер идёт в
+ * startTransition и коммитится отложенно — старая страница ещё смонтирована
+ * и до commit должна видеть живые слайсы. У каждой записи свой navId: при
+ * commit более старого перехода нельзя уничтожать слайсы, вытесненные более
+ * новым (он ещё может быть смонтирован до своего commit).
+ */
+const pendingReleases = []
+
+/**
+ * Уничтожает вытесненные слайсы переходов не новее commit'нутого.
+ *
+ * @param {number} navId номер закоммиченного перехода.
+ */
+function flushPendingReleases(navId) {
+  for (let i = 0; i < pendingReleases.length;) {
+    const item = pendingReleases[i]
+    if (item.navId > navId) {
+      i++
+      continue
+    }
+    pendingReleases.splice(i, 1)
+    try {
+      item.release()
+    } catch (err) {
+      console.error('[tusten] slice release failed:', err)
+    }
+  }
+}
+
+/**
+ * Маркер commit нового дерева.
+ *
+ * useEffect выполняется после монтирования нового дерева. Компонент получает
+ * новый key на каждую навигацию, поэтому effect срабатывает ровно один раз
+ * на переход (а не на каждый ре-рендер).
+ *
+ * @param {object} props пропсы.
+ * @param {Function} props.onCommit колбэк после commit.
+ * @returns {null} ничего не рендерит.
+ */
+function CommitMarker(props) {
+  useEffect(() => {
+    props.onCommit()
+    // Пустые зависимости осознанно: маркер перемонтируется по key.
+  }, [])
+  return null
+}
+
+/**
  * Клиентский prefetch: выполняет loadData через TustenService.
  *
  * @param {object} route маршрут.
@@ -727,6 +786,11 @@ async function main() {
       console.warn('[tusten] dev overlay failed to load:', err)
     }
   }
+
+  // Каталог навигации статичен: собираем один раз до гидрации, чтобы SSR,
+  // клиент и reload видели одинаковый список. Не в \`__ROOT_STATE_STR__\` —
+  // сериализовать его на каждый запрос незачем.
+  setNavigationCatalog(buildNavigation(routes))
 
   const rootEl = findRootEl()
   if (!rootEl) {
@@ -813,12 +877,39 @@ async function main() {
 
   // Единая точка сборки дерева: provider → root controller → состояние.
   // Root controller не перемонтируется — меняются только props.
-  const renderRoot = (children, router, route, status, error) =>
-    createElement(
+  // Параметр commit добавляет маркер, который срабатывает после commit нового
+  // дерева (нужен, чтобы уничтожить слайсы старой страницы не раньше времени).
+  const renderRoot = (children, router, route, status, error, commit) => {
+    const content = commit
+      ? createElement(
+          Fragment,
+          null,
+          children,
+          createElement(CommitMarker, { key: commit.key, onCommit: commit.onCommit }),
+        )
+      : children
+    return createElement(
       RootProvider,
       { sliceRegistry, router, route },
-      createElement(RootControllerComp, { route, router, status, error }, children),
+      createElement(RootControllerComp, { route, router, status, error }, content),
     )
+  }
+
+  /**
+   * Колбэк commit для перехода: уничтожает вытесненные слайсы и снимает pending.
+   *
+   * @param {number} navId номер навигации.
+   * @returns {object} пропсы маркера.
+   */
+  const makeCommit = (navId) => ({
+    key: 'nav:' + navId,
+    onCommit: () => {
+      flushPendingReleases(navId)
+      // Пока transition рендерился, могла начаться более новая навигация:
+      // pending принадлежит ей, снимать его нельзя.
+      if (navId === navSeq) setNavigationPending(false)
+    },
+  })
 
   // Видимая ошибка вместо молчаливого \`return\`: иначе падение навигации выглядит
   // как «клик не сработал». В dev параллельно поднимается оверлей со стеком.
@@ -874,6 +965,7 @@ async function main() {
     // Токен берём до middleware: иначе медленная цепочка первой навигации
     // получила бы номер позже более свежей и перезаписала её результат.
     const navId = ++navSeq
+    setNavigationPending(true)
 
     try {
       const redirect = await runClientMiddlewareChain(
@@ -886,6 +978,7 @@ async function main() {
     } catch (err) {
       console.error('[tusten] client middleware failed:', err)
       reportDevError(err, 'navigation')
+      if (navId === navSeq) setNavigationPending(false)
       return
     }
 
@@ -911,6 +1004,10 @@ async function main() {
       newRoute = built.route
     } catch (err) {
       nextPages.disposePage()
+      // Пока грузились данные, началась другая навигация — её результат
+      // важнее, страницу ошибки не показываем.
+      if (navId !== navSeq) return
+      setNavigationPending(false)
       console.error('[tusten] client prefetch failed:', err)
       await renderErrorPage(err, 'navigation')
       return
@@ -919,7 +1016,8 @@ async function main() {
       nextPages.disposePage()
       return
     }
-    sliceRegistry.adoptPage(nextPages)
+    // Слайсы старой страницы не уничтожаем сразу — только после commit.
+    pendingReleases.push({ navId, release: sliceRegistry.adoptPage(nextPages) })
     currentPageKey = nextPageKey
 
     if (mode === 'replace') {
@@ -936,9 +1034,13 @@ async function main() {
     }
     currentRouter = newRouter
 
-    rootRef.render(
-      renderRoot(newTree, newRouter, newRoute, 'ready'),
-    )
+    // startTransition: старый экран остаётся отзывчивым, пока новое дерево
+    // не готово. pending снимется маркером после commit (см. makeCommit).
+    startTransition(() => {
+      rootRef.render(
+        renderRoot(newTree, newRouter, newRoute, 'ready', undefined, makeCommit(navId)),
+      )
+    })
 
     // Meta (может быть RPC) не блокирует переход: страница уже показана.
     // Только для маршрутов с metaConfig — иначе title из route не затирается
@@ -979,6 +1081,7 @@ async function main() {
     // Токен берём до middleware: побеждает последняя операция, а не та,
     // чья middleware-цепочка завершилась позже.
     const navId = ++navSeq
+    setNavigationPending(true)
 
     if (runMiddleware) {
       try {
@@ -993,6 +1096,7 @@ async function main() {
       } catch (err) {
         console.error('[tusten] client middleware failed:', err)
         reportDevError(err, 'reload')
+        if (navId === navSeq) setNavigationPending(false)
         throw err
       }
       // Пока шёл middleware, пользователь мог начать навигацию.
@@ -1022,6 +1126,7 @@ async function main() {
       // nextRegistry содержит и global, и page (при global: false — только page):
       // удаляем всё, текущая страница остаётся нетронутой.
       nextRegistry.disposeAll()
+      if (navId === navSeq) setNavigationPending(false)
       console.error('[tusten] reload failed:', err)
       reportDevError(err, 'reload')
       throw err
@@ -1032,13 +1137,20 @@ async function main() {
     }
 
     // Атомарная подмена: только после успешной загрузки всех лоадеров.
-    if (reloadGlobals) sliceRegistry.adoptGlobal(nextRegistry)
-    sliceRegistry.adoptPage(nextRegistry)
+    // Уничтожение вытесненных слайсов — после commit (startTransition).
+    if (reloadGlobals) {
+      pendingReleases.push({ navId, release: sliceRegistry.adoptGlobal(nextRegistry) })
+    }
+    pendingReleases.push({ navId, release: sliceRegistry.adoptPage(nextRegistry) })
     currentPageKey = nextPageKey
 
     // Тот же key (без remount) → React сохраняет локальный state страницы,
     // но перерисовывает дерево и подписывается на новые слайсы.
-    rootRef.render(renderRoot(built.content, currentRouter, built.route, 'ready'))
+    startTransition(() => {
+      rootRef.render(
+        renderRoot(built.content, currentRouter, built.route, 'ready', undefined, makeCommit(navId)),
+      )
+    })
 
     document.title = to.route.title || 'tusten'
     if (to.route.metaConfig) {
@@ -1190,7 +1302,6 @@ ${imports.join('\n')}
 
 export {
   RootProvider,
-  SliceRegistry,
   renderLayoutChain,
   RootErrorBoundary,
   RootLoading,
@@ -1200,6 +1311,8 @@ export {
   loadRegisteredDictionaries,
   getRegisteredDictionary,
 } from '@tusten/core/client'
+
+export { SliceRegistry } from '@tusten/core'
 
 export const modules = {
 ${entries.join(',\n')}

@@ -41,7 +41,18 @@ describe('toClientRoute', () => {
         })
     })
 
-    it('маршрут без layout и metaConfig', () => {
+    it('переносит navigation как есть', () => {
+        const route = makeRoute({
+            id: 'about',
+            navigation: { title: 'О нас', icon: 'info', nested: { order: 10 } },
+        })
+
+        const client = toClientRoute(route, { path: '/about' })
+
+        expect(client.navigation).toEqual({ title: 'О нас', icon: 'info', nested: { order: 10 } })
+    })
+
+    it('маршрут без navigation и metaConfig', () => {
         const route = makeRoute({ id: 'plain', metaConfig: undefined })
         const client = toClientRoute(route, { path: '/plain' })
 

@@ -1,6 +1,6 @@
 {
     "name": "@tusten/core",
-    "version": "0.2.0-beta.6",
+    "version": "0.2.0-beta.7",
     "type": "module",
     "description": "Fullstack React framework on React 19 + Fastify + Vite",
     "license": "MIT",
@@ -28,7 +28,6 @@
     ],
     "files": [
         "dist",
-        "!dist/**/*.map",
         "types",
         "bin",
         "README.md",
@@ -71,6 +70,7 @@
         "publish:alpha": "pnpm build && npm publish --tag alpha --access public && npm dist-tag add @tusten/core@$(node -p \"require('./package.json').version\") alpha && npm dist-tag add @tusten/core@$(node -p \"require('./package.json').version\") latest"
     },
     "dependencies": {
+        "@fastify/compress": "^8.3.1",
         "@fastify/static": "^10.1.10",
         "devalue": "^6.0.3",
         "jiti": "^2.4.2"

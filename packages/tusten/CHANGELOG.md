@@ -4,6 +4,39 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии — [SemVer](https://semver.org/lang/ru/).
 Breaking changes помечены **BREAKING**.
 
+## [0.2.0-beta.7] — 2026-11-19
+
+### Added
+
+- **Каталог навигации из дерева маршрутов.** Поле `route.navigation` (opt-in) помечает маршрут пунктом меню; `getNavigation()` возвращает плоский каталог (`id`, `href`, `parentId`, `dynamic`, `slug` + прикладные ключи), `buildNavigation(routes)` — то же без состояния (тесты, `sitemap.xml`). `href` для статического маршрута берётся из пути, явный `navigation.href` побеждает, динамический маршрут без явного `href` отдаётся с `dynamic: true` без ссылки. Ключи (`title`, `icon`, `order`, права) — приложение через module augmentation `TustenRouteNavigation`; значения проверяются на JSON-safety в `buildRouteTree`. Каталог статичен, засеивается в `globalThis` в client-entry и `create-server`, в `__ROOT_STATE_STR__` не попадает. `getNavigation()` импортируется из client-safe `@tusten/core`, поэтому работает и на клиенте, и в кастомном JSON-RPC-обработчике: сервер может вернуть каталог (при необходимости отфильтрованный по правам/`ctx`) клиенту обычным `Service.call`.
+- **Сжатие HTTP-ответов включено по умолчанию (brotli + gzip).** `@fastify/compress` сжимает `POST /service`, API-роуты и статику; SSR-документ и готовые HTML-тела (SPA-shell, 404, страницы ошибок) сжимаются встроенным zlib-пайплайном, потому что SSR пишет в `reply.raw` в обход хуков Fastify. Кодировка выбирается по `Accept-Encoding`, `Vary: Accept-Encoding` мёржится с i18n-значением. Новый конфиг `server.compress?: false | { threshold?, encodings?, ssr? }`; `false` полностью выключает сжатие (когда сжимает прокси/CDN), `ssr: false` — только стримируемый HTML.
+- **`publicDir`** — каталог статики рядом с `client/` и `server/` (по умолчанию `public`, `false` — отключить). Vite обслуживает его в dev и копирует в `dist/client` на сборке; prod-сервер дополнительно читает исходный каталог через `@fastify/static` (артефакты сборки имеют приоритет). Хэшированные чанки/ассеты (включая entry) получают `Cache-Control: public, max-age=31536000, immutable`, файлы из `public/` — `no-cache`.
+- **Хэшированные имена ассетов и `immutable`.** Entry-чанк клиента, чанки и CSS получают хэш в имени (`assets/client-entry-<hash>.js`, `assets/<name>-<hash>.js`, `assets/<name>-<hash>.css`) и отдаются с `Cache-Control: public, max-age=31536000, immutable`. URL entry для `<script type="module">` берётся из Vite manifest (`findClientEntryFile`), поэтому деплой не требует правок в шаблоне; файлы из `public/` по-прежнему `no-cache`.
+- **Предсжатие статики (Brotli + Gzip).** `buildClient` после записи бандла создаёт рядом с текстовыми файлами (`js`, `css`, `html`, `json`, `svg`, `xml`, `txt`, `map` — крупнее 1 КБ) `.br` (brotli quality 11) и `.gz` (gzip level 9). Prod-сервер включает `@fastify/static.preCompressed: true`: отдача по `Accept-Encoding` без CPU на каждый запрос, с автоматическим `Vary: Accept-Encoding` и откатом на несжатый файл. Утилита — `precompressAssets(dir, options)` в `build/precompress.ts`.
+- **`startTransition` при SPA-переходе и публичный `pending`.** Новое дерево рендерится в transition: старая страница остаётся на месте, пока грузятся данные и чанки. `useNavigation()` получил `pending`, добавлены `useNavigationPending()`, `isNavigationPending()`, `subscribeNavigationPending()`, `setNavigationPending()` и готовая полоска `<NavigationProgress />` (рендерится в root controller, при SSR невидима, клики не перехватывает).
+- **`create-tusten-app`** — скаффолдер новых приложений (`npm create tusten-app@latest my-app`). Один шаблон `basic`, вопросы про Tailwind / ESLint / Prettier, выбор пакетного менеджера (pnpm по умолчанию), установка зависимостей и `git init` по желанию. Версии `@tusten/core` и его peer-зависимостей берутся из `packages/tusten/package.json` при сборке скаффолдера. В шаблоне **JSON-RPC включён по умолчанию**: объект `App` (`server/app/App.meta.ts`), клиентский вызов через `Service` (`client/Page/Factories/appInfo.ts`) и SSR-prefetch данных, плюс `public/` и сжатие ответов. Публикация пока не выполнялась.
+- **Алиасы из `tsconfig.json` работают и на сервере.** Загрузчики на jiti (`tusten.config.ts`, `router.ts`, `*.loader.ts`, server routes/plugins/middleware, RPC-объекты, `configLoader` маршрутов) читают `compilerOptions.paths` через `createProjectJiti`, поэтому `@/…` и `@server/…` резолвятся одинаково в редакторе, `tsc`, Vite и Node. В Vite пути включаются опцией `vite.resolve.tsconfigPaths`; скаффолдер создаёт `paths` для `client/` и `server/`.
+
+### Breaking
+
+- **`SliceRegistry.adoptPage()` / `adoptGlobal()` больше не уничтожают вытесненные слайсы сразу.** Они возвращают идемпотентную `release()`-функцию: client-entry вызывает её после commit нового дерева (`startTransition`), иначе старая страница осталась бы смонтированной с уничтоженными слайсами. Прямые вызовы, которые игнорировали возвращаемое значение, должны вызывать `release()` самостоятельно — иначе слайсы утекут до `dispose*`.
+- **`@tusten/core/client` больше не реэкспортирует core API.** Убран `export * from '..'`: клиентский entry содержит только React API и клиентский рантайм (`RootProvider`, хуки, `Link`, `Outlet`, `Remote`, `RootErrorBoundary`/`RootLoading`/`RootNotFound`, i18n, `devalueParse`/`devalueStringify`). `defineConfig`, `defineRoute`, `defineGlobalLoader`, `Slice`, `AbstractSlice`, `SliceRegistry`, `Service`, `TustenError`, `RpcError`, `runGlobalPrefetch`/`runPagePrefetch`/`runPrefetch`, `computePath`, `resolveMeta`, `toClientRoute`/`pickClientRoute`/`collectParentIds` и общие типы импортируются из `@tusten/core`.
+- **Из `@tusten/core/server` убраны дубли core-экспортов.** `TustenError`, `RpcError`, `runPrefetch`, `runGlobalPrefetch`, `runPagePrefetch` и типы prefetch остаются только в `@tusten/core`; `server/prefetch.ts` удалён. Серверный entry — только Node-only API.
+- **RPC-типы — только в `@tusten/core/server`.** `RpcContext`, `RpcOptions`, `ResolvedRpcOptions`, `RpcObjectDefinition`, `RpcMethodDefinition`, `RpcParamsSchema`, `AuthRequirement`, `RpcExecutor`, `StandardSchemaV1` больше не экспортируются из `@tusten/core`.
+- **`registerServerPlugins(fastify, plugins, projectDir)`** — третий аргумент обязателен: без корня проекта jiti не находит `tsconfig.json` и не применяет `paths`.
+
+### Changed
+
+- **Пользовательская документация по данным.** `docs/Factories.md` — фабрики, аргументы, зависимости, `Service`, SSR/SPA-пайплайн; `docs/Slices.md` — слайсы, `setState`, хуки, жизненный цикл, сериализация и `SliceRegistry`. Ссылки добавлены в `README.md` и `docs/Router.md`.
+- **Пользовательская документация по конфигурации.** `docs/Config.md` — `defineConfig`, все секции `tusten.config.ts`, значения по умолчанию, пути, рецепты и ограничения. Ссылка добавлена в раздел «Конфиг» корневого `README.md`.
+- **`dist/server` больше не содержит копию `public/`.** SSR-сборка запускается с `publicDir: false`: статика копируется один раз в `dist/client`, а SSR-бандл не раздувается.
+- **`defineRoute`: обязательны только `id` и `contentConfig.workspaceConfig.template`.** `prefetchConfig` стал опциональным: без него у страницы нет page-слайсов, `configLoader` не грузится ни на сервере, ни на клиенте, а в `__ROOT_STATE_STR__` едут только глобальные слайсы. Глобальные слайсы и `*.loader.ts` тоже необязательны: проект с одной страницей без единого загрузчика собирается и рендерится, `globalRegistry` пустой. Затронуты `runPagePrefetch`, манифест, Vite-плагин и сбор фабрик.
+
+### Fixed
+
+- **Конфиг без `export default` больше не игнорируется молча.** `jiti` с `interopDefault` на модуле без экспортов возвращает `{ default: {} }`, и `loadConfig` принимал пустой объект за валидный конфиг: сервер стартовал на дефолтах, пропадали `client.css`, `client.root`, i18n и Vite-плагины (например, Tailwind не подключался). Теперь — `TustenError: Config at … must export a default object`.
+- **Source maps теперь попадают в npm-пакет.** `dist/**/*.map` исключались из `files`, хотя сборка (`tsup` с `sourcemap: true`) оставляет в JS комментарии `//# sourceMappingURL=…`. Vite у потребителя пытался прочитать отсутствующий файл и писал при каждом старте `Failed to load source map … ENOENT`. Карты self-contained (`sourcesContent`), поэтому стеки SSR снова маппятся в исходные `.ts`/`.tsx`.
+
 ## [0.2.0-beta.6] — 2026-11-18
 
 ### Breaking
@@ -150,7 +183,8 @@ Breaking changes помечены **BREAKING**.
 
 - Первый коммит: структура монорепо (`..` + `examples/basic`), скаффолд клиента и сервера, базовая документация.
 
-[Unreleased]: https://github.com/yartema/tusten-framework/compare/v0.2.0-beta.6...HEAD
+[Unreleased]: https://github.com/yartema/tusten-framework/compare/v0.2.0-beta.7...HEAD
+[0.2.0-beta.7]: https://github.com/yartema/tusten-framework/compare/v0.2.0-beta.6...v0.2.0-beta.7
 [0.2.0-beta.6]: https://github.com/yartema/tusten-framework/compare/v0.2.0-beta.5...v0.2.0-beta.6
 [0.2.0-beta.5]: https://github.com/yartema/tusten-framework/compare/v0.2.0-beta.4...v0.2.0-beta.5
 [0.2.0-beta.4]: https://github.com/yartema/tusten-framework/compare/v0.2.0-beta.1...v0.2.0-beta.4

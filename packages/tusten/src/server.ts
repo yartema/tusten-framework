@@ -20,9 +20,6 @@ export type { CreateServerOptions, TustenServerMode } from './server/create-serv
 
 export { createDevModuleLoader, createProdModuleLoader } from './server/module-loader'
 
-export { runPrefetch } from './core/prefetch'
-export type { PrefetchContext, PrefetchResult, PrefetchSliceInfo } from './core/prefetch'
-
 export { serializeState, stringifyState } from './server/serialize'
 export type { SerializedState } from './server/serialize'
 
@@ -55,7 +52,6 @@ export type {
 export { loadMiddleware } from './server/middleware-loader'
 export { runServerMiddleware } from './server/run-server-middleware'
 export type { ServerMiddlewareContext, ServerMiddlewareResult } from './server/run-server-middleware'
-export { runGlobalPrefetch, runPagePrefetch } from './server/prefetch'
 export type { MiddlewareSide, MiddlewareFn } from './server/middleware-loader'
 export { defineObject } from './core/define-object'
 export { scanRpcObjects } from './server/rpc-scanner'
@@ -82,4 +78,3 @@ export type { RpcHandlerOptions } from './server/rpc-handler'
 export { createRpcExecutor } from './server/rpc-executor'
 export { runWithRpcContext, getRpcContext, parseCookieHeader } from './server/rpc/als'
 export type { RpcAlsContext } from './server/rpc/als'
-export { TustenError, RpcError } from './core/errors'

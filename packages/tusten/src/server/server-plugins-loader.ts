@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
-import { createJiti } from 'jiti'
+import { createProjectJiti } from '../utils/project-jiti'
 import type { ServerPluginDef, ServerPluginsOptions } from '../types'
 
 /**
@@ -32,7 +32,7 @@ export async function loadServerPlugins(projectDir: string, pluginsDir: string):
     for (const indexName of ['index.ts', 'index.js']) {
         const indexPath = path.join(abs, indexName)
         try {
-            const jiti = createJiti(import.meta.url, { interopDefault: true })
+            const jiti = createProjectJiti(projectDir)
             const idxMod = (await jiti.import(indexPath, { default: true })) as ServerPluginsOptions | undefined
             if (idxMod && Array.isArray(idxMod.order)) order = idxMod.order
             break

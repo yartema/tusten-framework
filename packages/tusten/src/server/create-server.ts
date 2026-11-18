@@ -1,10 +1,15 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
+import fastifyCompress from '@fastify/compress'
 import path from 'node:path'
+import { constants } from 'node:zlib'
 import { promises as fs } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { createSSRHandler, type SSRI18nRuntime } from './ssr-handler'
 import { createDevModuleLoader, createProdModuleLoader } from './module-loader'
+import { resolveStaticCacheControl } from './static-cache'
+import { buildClientRoutes } from '../core/client-route'
+import { buildNavigation, setNavigationCatalog } from '../core/navigation'
 import { tustenPlugin } from '../vite/plugin'
 import { resolveCssPaths } from '../utils/css'
 import { createRpcExecutor } from './rpc-executor'
@@ -15,6 +20,7 @@ import type { ComponentType, ReactNode } from 'react'
 import type { FactoryMap, Manifest, MiddlewareDef, ResolvedTustenConfig, RouteTree, RpcExecutor } from '../types'
 import type { I18nDictionary } from '../client/i18n/create-rk'
 import type { RpcRegistry } from './rpc-registry'
+import { findClientEntryFile, type ClientManifestEntry } from './ssr/assets/manifest'
 
 /**
  * i18n-часть `tusten/client`, которую использует SSR. Берётся из того же модуля,
@@ -47,11 +53,12 @@ export interface CreateServerOptions {
  * Создаёт Fastify-сервер.
  *
  * Регистрирует (в порядке):
- *   1. RPC endpoint `POST /service` (если `config.server.rpc.enabled`).
- *   2. Fastify-плагины (`config.server.plugins`).
- *   3. `/__tusten/prefetch/:routeId` — SPA-navigation (wrapped in ALS).
- *   4. API-роуты (`config.server.routes`).
- *   5. SSR/SPA HTML catch-all.
+ *   1. Сжатие ответов (`@fastify/compress`, если не выключено в конфиге).
+ *   2. RPC endpoint `POST /service` (если `config.server.rpc.enabled`).
+ *   3. Fastify-плагины (`config.server.plugins`).
+ *   4. Статику: `dist/client` и `public/` (только prod).
+ *   5. API-роуты (`config.server.routes`).
+ *   6. SSR/SPA HTML catch-all.
  *
  * @param options опции.
  * @returns Fastify-инстанс.
@@ -65,7 +72,30 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     })
     const clientDir = path.resolve(projectDir, config.client.clientDir)
     const outDir = path.resolve(projectDir, config.build.outDir)
+    const publicDir = config.publicDir ? path.resolve(projectDir, config.publicDir) : null
     const cssFiles = resolveCssPaths(projectDir, clientDir, config)
+
+    // Каталог навигации статичен и не содержит данных запроса — сеять в
+    // `globalThis` безопасно (в отличие от пути/прав, которые в глобал не кладём).
+    // Это тот же набор, что client-entry соберёт для браузера: обе стороны
+    // используют одну проекцию `toClientRoute`.
+    setNavigationCatalog(buildNavigation(buildClientRoutes(routeTree)))
+
+    // Сжатие регистрируется до роутов: плагин навешивает onSend-хук, который
+    // должен успеть на все обычные ответы (RPC, API, статика). SSR-стрим и
+    // готовые HTML-тела ответчика идут мимо хуков — их сжимаем сами.
+    if (config.server.compress) {
+        await fastify.register(fastifyCompress, {
+            global: true,
+            threshold: config.server.compress.threshold,
+            encodings: config.server.compress.encodings,
+            // Brotli quality 11 (дефолт Node) — офлайн-профиль: на каждый запрос
+            // `client.js` это десятки миллисекунд CPU. Для рантайма quality 4,
+            // gzip — уровень 6: те же параметры, что у SSR-компрессора.
+            brotliOptions: { params: { [constants.BROTLI_PARAM_QUALITY]: 4 } },
+            zlibOptions: { level: 6 },
+        })
+    }
 
     let RootProvider: ComponentType<{
         children?: ReactNode
@@ -83,7 +113,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     let fixStacktrace: ((error: unknown) => void) | undefined
     let entryScriptSrc: string
     let i18nClient: TustenClientI18nApi
-    let clientManifest: Record<string, never> | null = null
+    let clientManifest: Record<string, ClientManifestEntry> | null = null
     const clientOutPublicPrefix = '/'
     const isDev = mode === 'development'
 
@@ -95,6 +125,8 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         const vite = await createServer({
             ...userVite,
             root: projectDir,
+            // Каталог статики задаёт tusten: dev и prod должны отдавать одно и то же.
+            publicDir: publicDir ?? false,
             server: { ...(userVite.server ?? {}), middlewareMode: true },
             appType: 'custom',
             configFile: false,
@@ -136,17 +168,23 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
 
         // Vite резолвит `tusten/client` через `exports` пакета → dist/client/index.js.
         // `noExternal: ['@tusten/core']` заставляет Vite трансформировать, а не externalize.
-        const tustenClient = (await vite.ssrLoadModule('@tusten/core/client')) as {
-            RootProvider: typeof RootProvider
-            SliceRegistry: typeof SliceRegistry
-            renderLayoutChain: typeof renderLayoutChain
-            RootErrorBoundary: typeof RootErrorBoundary
-            RootNotFound: typeof RootNotFound
-        } & TustenClientI18nApi
+        // Core-safe `SliceRegistry` живёт только в `@tusten/core` (в `/client` его нет).
+        const [tustenCore, tustenClient] = (await Promise.all([
+            vite.ssrLoadModule('@tusten/core'),
+            vite.ssrLoadModule('@tusten/core/client'),
+        ])) as [
+            { SliceRegistry: new () => unknown },
+            {
+                RootProvider: typeof RootProvider
+                renderLayoutChain: typeof renderLayoutChain
+                RootErrorBoundary: typeof RootErrorBoundary
+                RootNotFound: typeof RootNotFound
+            } & TustenClientI18nApi,
+        ]
 
         i18nClient = tustenClient
         RootProvider = tustenClient.RootProvider
-        SliceRegistry = tustenClient.SliceRegistry
+        SliceRegistry = tustenCore.SliceRegistry
         renderLayoutChain = tustenClient.renderLayoutChain
         RootErrorBoundary = tustenClient.RootErrorBoundary
         RootNotFound = tustenClient.RootNotFound
@@ -169,7 +207,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         const manifestPath = path.join(clientOut, '.vite', 'manifest.json')
         try {
             const raw = await fs.readFile(manifestPath, 'utf8')
-            clientManifest = JSON.parse(raw) as Record<string, never>
+            clientManifest = JSON.parse(raw) as Record<string, ClientManifestEntry>
         } catch (err) {
             fastify.log.warn(
                 `[tusten] client manifest not found at ${manifestPath}: ${(err as Error).message}. ` +
@@ -192,12 +230,35 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         RootErrorBoundary = entryMod.RootErrorBoundary
         RootNotFound = entryMod.RootNotFound
         loadModule = createProdModuleLoader(serverEntry)
-        entryScriptSrc = '/client.js'
+        // Entry хэшируется (`assets/client-entry-<hash>.js`): URL берём из
+        // manifest. Без manifest (усечённый деплой) остаётся легаси-имя.
+        const entryFile = clientManifest ? findClientEntryFile(clientManifest) : null
+        entryScriptSrc = entryFile ? `${clientOutPublicPrefix}${entryFile}` : '/client.js'
+
+        // Артефакты сборки идут первыми: хэшированные чанки не должны
+        // перекрываться одноимённым файлом из `public/`. Второй root —
+        // исходный `public/`, чтобы файл, добавленный без пересборки, тоже отдавался.
+        // Несуществующий каталог не передаём: `@fastify/static` обходит roots
+        // через glob ещё на старте.
+        const publicDirExists = publicDir
+            ? await fs
+                  .stat(publicDir)
+                  .then((stat) => stat.isDirectory())
+                  .catch(() => false)
+            : false
 
         await fastify.register(fastifyStatic, {
-            root: clientOut,
+            root: publicDirExists && publicDir ? [clientOut, publicDir] : clientOut,
             prefix: '/',
             wildcard: false,
+            // `.br`/`.gz` создаёт `build/precompress.ts`; выбирается по
+            // `Accept-Encoding`, без сжатия на каждый запрос. `@fastify/static`
+            // сам добавляет `Vary: Accept-Encoding` и откатывается на
+            // несжатый файл, если варианта нет.
+            preCompressed: true,
+            setHeaders(reply, filePath) {
+                reply.header('Cache-Control', resolveStaticCacheControl(filePath))
+            },
         })
     }
 
@@ -219,7 +280,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         const { loadServerPlugins } = await import('./server-plugins-loader')
         const { registerServerPlugins } = await import('./api-register')
         const plugins = await loadServerPlugins(projectDir, config.server.plugins)
-        await registerServerPlugins(fastify, plugins)
+        await registerServerPlugins(fastify, plugins, projectDir)
     }
 
     // ---- API routes ----

@@ -2,7 +2,7 @@ import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { stringify as devalueStringify } from 'devalue'
 import { toVitePath } from '../utils/fs'
-import type { PrefetchSliceInfo } from './prefetch'
+import type { PrefetchSliceInfo } from '../core/prefetch'
 
 /**
  * Формат `__ROOT_STATE_STR__`, который внедряется в HTML.

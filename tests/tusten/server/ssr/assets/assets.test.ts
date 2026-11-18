@@ -7,6 +7,7 @@ import { clearDevCssCache, collectDirectCssImports } from '../../../../../packag
 import { createAssetResolver } from '../../../../../packages/tusten/src/server/ssr/assets/links'
 import {
     createClientManifestIndex,
+    findClientEntryFile,
     type ClientManifestEntry,
 } from '../../../../../packages/tusten/src/server/ssr/assets/manifest'
 import { resolveVitePath } from '../../../../../packages/tusten/src/server/ssr/assets/vite-path'
@@ -15,6 +16,7 @@ import { resolveVitePath } from '../../../../../packages/tusten/src/server/ssr/a
 function makeConfig(overrides: Partial<ResolvedTustenConfig> = {}): ResolvedTustenConfig {
     return {
         ssr: true,
+        publicDir: 'public',
         client: {
             clientDir: 'client',
             css: [],
@@ -28,6 +30,7 @@ function makeConfig(overrides: Partial<ResolvedTustenConfig> = {}): ResolvedTust
             routes: null,
             plugins: null,
             rpc: { enabled: true, url: '/service', describe: true },
+            compress: null,
         },
         middleware: [],
         vite: {},
@@ -117,6 +120,21 @@ describe('createClientManifestIndex', () => {
 
     it('индексирует записи по точному src', () => {
         expect(index.bySrc.get('client/slices/Foo.ts')?.map((entry) => entry.file)).toEqual(['assets/foo-slice.js'])
+    })
+})
+
+describe('findClientEntryFile', () => {
+    it('возвращает файл entry-чанка с хэшем', () => {
+        expect(
+            findClientEntryFile({
+                'client/runtime.ts': { file: 'assets/runtime-1a2b3c4d.js' },
+                'client/entry.ts': { file: 'assets/client-entry-9f8e7d6c.js', isEntry: true },
+            }),
+        ).toBe('assets/client-entry-9f8e7d6c.js')
+    })
+
+    it('без entry — null', () => {
+        expect(findClientEntryFile({ 'client/runtime.ts': { file: 'assets/runtime.js' } })).toBeNull()
     })
 })
 

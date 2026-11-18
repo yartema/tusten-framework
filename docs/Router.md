@@ -3,8 +3,7 @@
 Клиентская навигация: `useNavigation()`, `<Link>`, `getRouter()`, prefetch и
 `reload()`. Все примеры рассчитаны на прикладной код в `client/`.
 
-> Внутреннее устройство (SSR/SPA-пайплайны, `navSeq`, атомарная подмена слайсов) —
-> `ARCHITECTURE.md`. Краткая версия — раздел «Навигация» в корневом `README.md`.
+> Краткая версия — раздел «Навигация» в корневом `README.md`.
 
 В примерах импорты `react` и `@tusten/core/client` иногда опущены, чтобы не
 загромождать код; хуки и `<Link>` импортируются оттуда.
@@ -20,6 +19,7 @@
 - [Prefetch](#prefetch)
 - [Обновление данных: `reload()`](#обновление-данных-reload)
 - [Маршруты, params и query](#маршруты-params-и-query)
+- [Каталог навигации: `getNavigation()`](#каталог-навигации-getnavigation)
 - [Навигация вне React](#навигация-вне-react)
 - [SSR, SPA и первая загрузка](#ssr-spa-и-первая-загрузка)
 - [Ошибки и гонки](#ошибки-и-гонки)
@@ -88,6 +88,8 @@ interface TustenNavigation {
     params: Record<string, string>
     query: Record<string, string>
     route: TustenClientRoute | null
+    /** true, пока идёт переход (middleware + prefetch + commit). */
+    pending: boolean
 
     // Действия
     push(path: string): Promise<void>
@@ -104,6 +106,7 @@ interface TustenNavigation {
 | `params`           | Динамические сегменты маршрута, например `{ slug: 'hello' }` |
 | `query`            | Query-параметры, например `{ tab: 'users' }`                 |
 | `route`            | Публичный конфиг маршрута `TustenClientRoute` или `null`     |
+| `pending`          | `true`, пока переход не закоммичен (данные + чанки)          |
 | `push(path)`       | Перейти и добавить запись в history                          |
 | `replace(path)`    | Перейти, заменив текущую запись history                      |
 | `back()`           | Шаг назад по history                                         |
@@ -112,6 +115,32 @@ interface TustenNavigation {
 
 Хук реактивен: после `push` / `replace` / `back` компонент получит новые
 `pathname`, `params`, `query` и `route`.
+
+### Полоска загрузки и `pending`
+
+Новое дерево рендерится в `startTransition`: пока грузятся данные, middleware и
+чанки, старая страница остаётся на экране и полностью рабочая. `nav.pending`
+(`useNavigationPending()`) становится `true` в начале перехода и снимается после
+commit нового дерева. Слайсы старой страницы уничтожаются в этот же момент, а не
+раньше.
+
+Готовая полоска — `<NavigationProgress />`:
+
+```tsx
+import { NavigationProgress, type RootControllerProps } from '@tusten/core/client'
+
+export function Root({ children }: RootControllerProps) {
+    return (
+        <div>
+            <NavigationProgress />
+            {children}
+        </div>
+    )
+}
+```
+
+Пропсы: `color`, `height`, `delay` (не мигать на быстрых переходах), `zIndex`.
+При SSR полоска отдаётся невидимой, поэтому hydration не расходится.
 
 ### `route`: что внутри
 
@@ -204,7 +233,7 @@ const fullUrl = window.location.pathname + window.location.search
 кнопке, после успешной мутации.
 
 ```tsx
-import { Service } from '@tusten/core/client'
+import { Service } from '@tusten/core'
 
 const usersService = new Service()
 
@@ -446,6 +475,9 @@ await nav.reload({ middleware: false }) // без клиентской middlewar
 Если нужно обновить одну таблицу — используйте метод слайса. Если «покажи
 актуальные данные страницы» — `nav.reload()`.
 
+Подробно про state, `setState`, хуки и жизненный цикл —
+[`Slices.md`](Slices.md); про фабрики и `loadData` — [`Factories.md`](Factories.md).
+
 ### Индикатор загрузки
 
 ```tsx
@@ -563,6 +595,141 @@ Layout задаётся в `defineRoute`, а не в `client.layouts`:
 { id: 'home', index: true, layout: 'layouts/Main' }
 ```
 
+## Каталог навигации: `getNavigation()`
+
+`getNavigation()` — это **не** «где я сейчас» (для этого `useNavigation()`), а
+«какие пункты есть в приложении». Каталог собирается из маршрутов на сборке и
+одинаков в SSR, SPA-навигации, гидрации и `reload()`.
+
+### Участие маршрута
+
+Пункт появляется только при явном объекте `navigation`:
+
+```ts
+// client/AboutPage/router.ts
+export default defineRoute([
+    {
+        id: 'about',
+        navigation: { title: 'О нас', icon: 'info', order: 20 },
+        // ...
+    },
+])
+```
+
+Ключи (`title`, `icon`, `order`, `permission`) придумывает приложение — ядро их
+не знает. Контракт ужесточается через module augmentation:
+
+```ts
+// client/types/navigation.d.ts
+declare module '@tusten/core' {
+    interface TustenRouteNavigation {
+        title: string
+        icon?: string
+        order?: number
+        permission?: string
+    }
+}
+```
+
+Значения должны быть JSON-safe: `navigation` попадает в `routesData` через
+`JSON.stringify`, поэтому функция, `Date` или классовый инстанс — `TustenError`
+на сборке.
+
+### Что отдаёт ядро
+
+```ts
+interface TustenNavigationItem {
+    id: string
+    href?: string
+    parentId?: string
+    dynamic: boolean
+    slug?: string[]
+    // + все ключи из navigation
+}
+```
+
+- `href` для статического маршрута — `route.path`; явный непустой
+  `navigation.href` побеждает.
+- У динамического маршрута (`/blog/:id`, regex-slug) дефолтного `href` нет —
+  только явный `navigation.href`.
+- `id`, `href`, `parentId`, `dynamic`, `slug` — зарезервированы: payload не
+  может их подменить.
+- Порядок — порядок объявления в `defineRoute([...])`. `order` — прикладной
+  ключ, ядро не сортирует.
+
+```ts
+import { getNavigation } from '@tusten/core'
+
+const items = getNavigation()
+```
+
+`getNavigation()` возвращает новый массив (сортировать/фильтровать на месте
+можно), элементы заморожены. Пока каталог не засеян — `[]` (и один `console.warn`
+в dev), поэтому вызывайте функцию в компоненте или обработчике, а не на верхнем
+уровне модуля.
+
+Для своего дерева маршрутов (тесты, `sitemap.xml`, серверный код) есть чистая
+функция `buildNavigation(routes)`.
+
+### Динамические пункты
+
+Ядро не угадывает slug: пункт отдаётся с `dynamic: true` и без `href`.
+
+```tsx
+const items = getNavigation().map((item) =>
+    item.dynamic && item.id === 'blog' ? { ...item, href: `/blog/${latestPost.slug}` } : item,
+)
+```
+
+Пропустить динамику — `filter((item) => !item.dynamic)`.
+
+### Права и фильтрация
+
+Каталог возвращает **все** пункты — фильтр это прикладная логика:
+
+```tsx
+const permissions = useSlice(userSlice).state.permissions
+
+const items = getNavigation().filter((item) => !item.permission || permissions.has(item.permission))
+```
+
+- Считайте в рендере, а не один раз при инициализации: после логина/логаута
+  меню должно обновиться.
+- SSR и первый клиентский рендер должны видеть одинаковые права, иначе
+  hydration mismatch. Источник прав — глобальный loader (`__ROOT_STATE_STR__`).
+- Скрытие пункта — UX, а не защита. Реальная проверка — `route.middleware` и
+  `auth` у RPC-методов.
+- Серверная фильтрация легальна: RPC-обработчик может вызвать `getNavigation()`,
+  отфильтровать по `ctx`/`request` и вернуть готовый список.
+
+`getNavigation()` импортируется из client-safe `@tusten/core`, поэтому один и
+тот же вызов работает и в браузере, и в серверном JSON-RPC-обработчике:
+
+```ts
+// server/navigation/Navigation.meta.ts
+import { defineObject } from '@tusten/core/server'
+import { getNavigation } from '@tusten/core'
+
+export default defineObject({
+    name: 'Navigation',
+    methods: {
+        List: {
+            auth: true,
+            handler: async (_params, ctx) => {
+                const permissions = await loadPermissions(ctx)
+                return getNavigation().filter((item) => !item.permission || permissions.has(item.permission))
+            },
+        },
+    },
+})
+```
+
+Клиент получает список обычным `Service.call('Navigation.List')` — отдельного
+транспорта для навигации нет.
+
+`getNavigation()` не сортирует по `order`, не группирует, не переводит `title`,
+не делает `isActive` и не ходит за данными — всё это приложение.
+
 ## Навигация вне React
 
 ```ts
@@ -633,7 +800,7 @@ await getRouter().reload()
 Точечная инвалидация:
 
 ```ts
-import { Service } from '@tusten/core/client'
+import { Service } from '@tusten/core'
 
 const usersService = new Service({ endpoint: 'Users' })
 

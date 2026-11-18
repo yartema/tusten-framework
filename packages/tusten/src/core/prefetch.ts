@@ -53,7 +53,7 @@ export async function runGlobalPrefetch(
     const { route, globalRegistry, loadModule, registry, router } = ctx
     const states = new Map<string, unknown>()
     const slices = new Map<string, PrefetchSliceInfo>()
-    const needed = new Set<string>(route.contentConfig.prefetchConfig.dependencies ?? [])
+    const needed = new Set<string>(route.contentConfig.prefetchConfig?.dependencies ?? [])
 
     // Транзитивные.
     const queue = [...needed]
@@ -171,6 +171,13 @@ export async function runPagePrefetch(
     const states = new Map<string, unknown>(globalStates)
     const slices = new Map<string, PrefetchSliceInfo>()
 
+    // Без `prefetchConfig` у страницы нет собственных фабрик: в state едут
+    // только глобальные слайсы, шаблон рендерится на `templateProps`.
+    if (!prefetchCfg) {
+        collectGlobalSlices(slices, globalStates, globalRegistry)
+        return { states, slices }
+    }
+
     const getConfigRaw = await loadModule(prefetchCfg.configLoader)
     if (typeof getConfigRaw !== 'function') {
         throw new TustenError(`configLoader "${prefetchCfg.configLoader}" must export a function`)
@@ -281,6 +288,23 @@ export async function runPagePrefetch(
     })
 
     // В `slices` (для `__ROOT_STATE_STR__`) добавим и global — чтобы клиент восстановил.
+    collectGlobalSlices(slices, globalStates, globalRegistry)
+
+    return { states, slices }
+}
+
+/**
+ * Добавляет глобальные слайсы в карту для `__ROOT_STATE_STR__`.
+ *
+ * @param slices карта слайсов (мутируется).
+ * @param globalStates состояния глобальных загрузчиков.
+ * @param globalRegistry реестр глобальных фабрик.
+ */
+function collectGlobalSlices(
+    slices: Map<string, PrefetchSliceInfo>,
+    globalStates: Map<string, unknown>,
+    globalRegistry: FactoryMap,
+): void {
     for (const [name, data] of globalStates) {
         const def = globalRegistry[name]
         if (def) {
@@ -292,8 +316,6 @@ export async function runPagePrefetch(
             })
         }
     }
-
-    return { states, slices }
 }
 
 /**

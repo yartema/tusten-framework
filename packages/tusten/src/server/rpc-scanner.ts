@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
-import { createJiti } from 'jiti'
+import { createProjectJiti } from '../utils/project-jiti'
 import { TustenError } from '../core/errors'
 import type { RpcObjectDefinition } from '../types'
 
@@ -39,14 +39,15 @@ async function collectMetaFiles(dir: string): Promise<string[]> {
  * нет — возвращает пустой массив.
  *
  * @param serverDir абсолютный путь до `serverDir`.
+ * @param projectDir корень проекта (для `paths` из tsconfig); по умолчанию — родитель `serverDir`.
  * @returns массив определений.
  * @throws {TustenError} если структура файла невалидна.
  */
-export async function scanRpcObjects(serverDir: string): Promise<RpcObjectDefinition[]> {
+export async function scanRpcObjects(serverDir: string, projectDir?: string): Promise<RpcObjectDefinition[]> {
     const files = await collectMetaFiles(serverDir)
     if (files.length === 0) return []
 
-    const jiti = createJiti(import.meta.url, { interopDefault: true, jsx: true })
+    const jiti = createProjectJiti(projectDir ?? path.dirname(serverDir), { jsx: true })
     const result: RpcObjectDefinition[] = []
 
     for (const abs of files) {

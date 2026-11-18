@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react'
-import { runGlobalPrefetch, runPagePrefetch } from '../prefetch'
+import { runGlobalPrefetch, runPagePrefetch } from '../../core/prefetch'
 import { serializeState, stringifyState } from '../serialize'
 import { runServerMiddleware } from '../run-server-middleware'
 import { resolveMeta } from '../../core/meta-resolver'

@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { createJiti } from 'jiti'
+import { createProjectJiti } from '../utils/project-jiti'
 import { fileExists } from '../utils/fs'
 import { TustenError } from '../core/errors'
 import type { MiddlewareDef } from '../types'
@@ -42,7 +42,7 @@ export async function loadMiddleware(
         throw new TustenError(`Middleware "${def.id}" not found: ${def.handler} (resolved from ${base})`)
     }
 
-    const jiti = createJiti(import.meta.url, { interopDefault: true, jsx: true })
+    const jiti = createProjectJiti(projectDir, { jsx: true })
     const mod = (await jiti.import(abs)) as Record<string, unknown>
 
     // Приоритет: named export (если задан) → named по side (для both) → default.

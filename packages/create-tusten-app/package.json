@@ -1,0 +1,54 @@
+{
+    "name": "create-tusten-app",
+    "version": "0.2.0-beta.7",
+    "description": "Скаффолдер приложений на tusten (React 19 + Fastify + Vite)",
+    "type": "module",
+    "license": "MIT",
+    "author": "yar.tema",
+    "homepage": "https://github.com/yartema/tusten-framework#readme",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/yartema/tusten-framework.git",
+        "directory": "packages/create-tusten-app"
+    },
+    "bugs": {
+        "url": "https://github.com/yartema/tusten-framework/issues"
+    },
+    "keywords": [
+        "create",
+        "scaffold",
+        "tusten",
+        "react",
+        "fastify",
+        "vite",
+        "ssr"
+    ],
+    "bin": {
+        "create-tusten-app": "./bin/create-tusten-app.mjs"
+    },
+    "files": [
+        "dist",
+        "bin",
+        "templates",
+        "README.md",
+        "LICENSE"
+    ],
+    "engines": {
+        "node": ">=20.0.0"
+    },
+    "scripts": {
+        "build": "tsup",
+        "typecheck": "tsc --noEmit",
+        "prepack": "pnpm build"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.2",
+        "jiti": "^2.4.2",
+        "tsup": "^8.3.5",
+        "typescript": "^5.7.2"
+    },
+    "publishConfig": {
+        "access": "public",
+        "tag": "latest"
+    }
+}

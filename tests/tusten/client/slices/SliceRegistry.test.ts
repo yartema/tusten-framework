@@ -226,7 +226,7 @@ describe('SliceRegistry', () => {
     })
 
     describe('adoptPage', () => {
-        it('переносит page-слайсы и уничтожает старые', () => {
+        it('переносит page-слайсы, старые живут до release', () => {
             const r = new SliceRegistry()
             const oldSlice = new TestSlice()
             oldSlice.hydrate(1)
@@ -237,18 +237,35 @@ describe('SliceRegistry', () => {
             newSlice.hydrate(2)
             next.setPage('new', newSlice)
 
-            r.adoptPage(next)
+            const release = r.adoptPage(next)
 
-            expect(oldSlice.isDestroyed()).toBe(true)
+            // До commit нового дерева старый слайс ещё нужен: он не уничтожен
+            // и сохраняет state (при startTransition страница смонтирована).
+            expect(oldSlice.isDestroyed()).toBe(false)
+            expect(oldSlice.state).toBe(1)
             expect(r.get('old')).toBeUndefined()
             expect(r.get('new')).toBe(newSlice)
             expect(newSlice.isDestroyed()).toBe(false)
             expect(newSlice.state).toBe(2)
             // Инстансы переехали — исходный реестр пуст.
             expect(next.get('new')).toBeUndefined()
+
+            release()
+            expect(oldSlice.isDestroyed()).toBe(true)
         })
 
-        it('одинаковый ключ — старый уничтожается, новый побеждает', () => {
+        it('release идемпотентен', () => {
+            const r = new SliceRegistry()
+            const oldSlice = new TestSlice()
+            r.setPage('x', oldSlice)
+            const release = r.adoptPage(new SliceRegistry())
+
+            release()
+            expect(() => release()).not.toThrow()
+            expect(oldSlice.isDestroyed()).toBe(true)
+        })
+
+        it('одинаковый ключ — новый побеждает, старый уничтожается release', () => {
             const r = new SliceRegistry()
             const oldSlice = new TestSlice()
             r.setPage('x', oldSlice)
@@ -257,10 +274,14 @@ describe('SliceRegistry', () => {
             const newSlice = new TestSlice()
             next.setPage('x', newSlice)
 
-            r.adoptPage(next)
+            const release = r.adoptPage(next)
 
-            expect(oldSlice.isDestroyed()).toBe(true)
             expect(r.get('x')).toBe(newSlice)
+            expect(oldSlice.isDestroyed()).toBe(false)
+
+            release()
+            expect(oldSlice.isDestroyed()).toBe(true)
+            expect(newSlice.isDestroyed()).toBe(false)
         })
 
         it('не трогает global', () => {
@@ -270,7 +291,7 @@ describe('SliceRegistry', () => {
             const next = new SliceRegistry()
             next.setPage('p', new TestSlice())
 
-            r.adoptPage(next)
+            r.adoptPage(next)()
 
             expect(g.isDestroyed()).toBe(false)
             expect(r.get('g')).toBe(g)
@@ -282,26 +303,29 @@ describe('SliceRegistry', () => {
             const s = new TestSlice()
             r.setPage('x', s)
 
-            expect(() => r.adoptPage(r)).not.toThrow()
+            expect(() => r.adoptPage(r)()).not.toThrow()
 
             expect(s.isDestroyed()).toBe(false)
             expect(r.get('x')).toBe(s)
         })
 
-        it('пустой source — уничтожает старые page-слайсы', () => {
+        it('пустой source — старые уничтожаются release', () => {
             const r = new SliceRegistry()
             const s = new TestSlice()
             r.setPage('x', s)
 
-            r.adoptPage(new SliceRegistry())
+            const release = r.adoptPage(new SliceRegistry())
 
-            expect(s.isDestroyed()).toBe(true)
+            expect(s.isDestroyed()).toBe(false)
             expect(r.get('x')).toBeUndefined()
+
+            release()
+            expect(s.isDestroyed()).toBe(true)
         })
     })
 
     describe('adoptGlobal', () => {
-        it('переносит global-слайсы и уничтожает старый по тому же ключу', () => {
+        it('переносит global-слайсы, старый по тому же ключу живёт до release', () => {
             const r = new SliceRegistry()
             const oldSlice = new TestSlice()
             oldSlice.hydrate(1)
@@ -312,13 +336,17 @@ describe('SliceRegistry', () => {
             newSlice.hydrate(2)
             next.setGlobal('userInfo', newSlice)
 
-            r.adoptGlobal(next)
+            const release = r.adoptGlobal(next)
 
-            expect(oldSlice.isDestroyed()).toBe(true)
+            expect(oldSlice.isDestroyed()).toBe(false)
+            expect(oldSlice.state).toBe(1)
             expect(r.get('userInfo')).toBe(newSlice)
             expect(newSlice.isDestroyed()).toBe(false)
             // Инстансы переехали — исходный реестр пуст.
             expect(next.get('userInfo')).toBeUndefined()
+
+            release()
+            expect(oldSlice.isDestroyed()).toBe(true)
         })
 
         it('не трогает page и глобальные ключи вне source', () => {
@@ -344,7 +372,7 @@ describe('SliceRegistry', () => {
             const s = new TestSlice()
             r.setGlobal('x', s)
 
-            expect(() => r.adoptGlobal(r)).not.toThrow()
+            expect(() => r.adoptGlobal(r)()).not.toThrow()
 
             expect(s.isDestroyed()).toBe(false)
             expect(r.get('x')).toBe(s)
